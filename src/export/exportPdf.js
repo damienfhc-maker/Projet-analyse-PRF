@@ -1,0 +1,174 @@
+/* ============================================================
+ * exportPdf.js — Export PDF (CDC §10.2, §10.3)
+ *
+ * Rapport structuré et imprimable :
+ *   - page de couverture (titre, date, fichiers sources, périmètre) ;
+ *   - résumé global (agrégats par STRR / champ, colorés) ;
+ *   - tableaux détaillés par STRR ;
+ *   - pagination automatique avec numéros de page.
+ *
+ * Généré 100 % localement via jsPDF + autotable vendorisés.
+ * Le filtrage strict (§10.3) est hérité de la même vue d'export
+ * que l'Excel : suppressions, exclusions et champs décochés absents.
+ * ============================================================ */
+"use strict";
+
+window.PRF = window.PRF || {};
+
+PRF.exportPdf = (function () {
+
+  /** Marges du document (mm). */
+  const MARGIN = 14;
+
+  /** Formate un nombre pour le PDF (format FR, 2 décimales maximum). */
+  function fmt(v) {
+    if (v === null || v === undefined) return '';
+    if (typeof v !== 'number') return String(v);
+    return PRF.ui.formatNumber(v);
+  }
+
+  /**
+   * Pied de page : pagination automatique « Page X / Y » (§10.2).
+   * Utilise le placeholder totalPages de jsPDF.
+   */
+  function addFooters(doc) {
+    const total = doc.getNumberOfPages();
+    for (let i = 1; i <= total; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(120);
+      doc.text('Page ' + i + ' / ' + total,
+        doc.internal.pageSize.getWidth() - MARGIN, doc.internal.pageSize.getHeight() - 7,
+        { align: 'right' });
+      doc.text('Rapport de comparaison STRR — généré localement le ' + new Date().toLocaleDateString('fr-FR'),
+        MARGIN, doc.internal.pageSize.getHeight() - 7);
+    }
+  }
+
+  /**
+   * Applique le color coding vert/rouge à la colonne DELTA d'une table.
+   * @param {Object} data  hook autotable didParseCell
+   * @param {number} deltaColIndex
+   * @param {Function} fieldOfRow  index de ligne → nom de champ
+   */
+  function colorizeDelta(data, deltaColIndex, fieldOfRow) {
+    if (data.section !== 'body' || data.column.index !== deltaColIndex) return;
+    const raw = data.cell.raw;
+    if (raw === '' || raw === null || raw === undefined) return;
+    const num = typeof raw === 'number' ? raw : parseFloat(String(raw).replace(/[  ]/g, '').replace(',', '.'));
+    if (!isFinite(num)) return;
+    const better = PRF.fieldRegistry.isImprovement(fieldOfRow(data.row.index), num);
+    if (better === true) { data.cell.styles.textColor = [21, 128, 61]; data.cell.styles.fontStyle = 'bold'; }
+    else if (better === false) { data.cell.styles.textColor = [185, 28, 28]; data.cell.styles.fontStyle = 'bold'; }
+  }
+
+  /** Lance la génération du rapport PDF. */
+  function run() {
+    const view = PRF.comparisonTable.getExportView();
+    if (!view.detailRows.length) {
+      PRF.errors.userWarn('Aucune ligne à exporter : vérifiez les filtres, suppressions et exclusions.');
+      return;
+    }
+    const t0 = performance.now();
+    const doc = new jspdf.jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const st = PRF.store.state;
+
+    // ---- Couverture -----------------------------------------------------
+    doc.setFontSize(24);
+    doc.setTextColor(16, 24, 39);
+    doc.text('Rapport de comparaison STRR', pageW / 2, 60, { align: 'center' });
+    doc.setFontSize(14);
+    doc.setTextColor(80);
+    doc.text('ACTUEL / PROPOSER', pageW / 2, 72, { align: 'center' });
+    doc.setFontSize(11);
+    doc.text('Généré le ' + new Date().toLocaleString('fr-FR'), pageW / 2, 86, { align: 'center' });
+
+    const strrIds = Array.from(new Set(view.detailRows.map(function (r) { return r.strrId; })));
+    const covLines = [
+      'Fichiers sources : ' + (st.files.map(function (f) { return f.name; }).join(', ') || '—'),
+      'STRR inclus : ' + strrIds.join(', '),
+      'Champs comparés : ' + Array.from(st.fieldConfig.selected).join(', '),
+      'Lignes de comparaison exportées : ' + view.detailRows.length
+    ];
+    doc.setFontSize(10);
+    doc.setTextColor(60);
+    let y = 110;
+    covLines.forEach(function (line) {
+      const wrapped = doc.splitTextToSize(line, pageW - 2 * MARGIN - 20);
+      doc.text(wrapped, MARGIN + 10, y);
+      y += wrapped.length * 5 + 3;
+    });
+
+    // ---- Résumé global --------------------------------------------------
+    doc.addPage();
+    doc.setFontSize(15);
+    doc.setTextColor(16, 24, 39);
+    doc.text('Résumé global', MARGIN, 18);
+
+    const globals = PRF.comparator.aggregate(view.detailRows, 'global');
+    globals.sort(function (a, b) {
+      return a.strrId === b.strrId ? (a.field < b.field ? -1 : 1) : (a.strrId < b.strrId ? -1 : 1);
+    });
+    const summaryFields = globals.map(function (g) { return g.field; });
+    doc.autoTable({
+      startY: 24,
+      margin: { left: MARGIN, right: MARGIN },
+      head: [['STRR', 'Champ', 'ACTUEL', 'PROPOSER', 'DELTA']],
+      body: globals.map(function (g) {
+        return [g.strrId, g.field, fmt(g.actual), fmt(g.proposed), fmt(g.delta)];
+      }),
+      styles: { fontSize: 9, cellPadding: 1.6 },
+      headStyles: { fillColor: [16, 24, 39] },
+      didParseCell: function (data) {
+        colorizeDelta(data, 4, function (i) { return summaryFields[i]; });
+      }
+    });
+
+    // ---- Détail par STRR ------------------------------------------------
+    const byStrr = new Map();
+    view.detailRows.forEach(function (r) {
+      let arr = byStrr.get(r.strrId);
+      if (!arr) { arr = []; byStrr.set(r.strrId, arr); }
+      arr.push(r);
+    });
+
+    byStrr.forEach(function (rows, strrId) {
+      doc.addPage();
+      doc.setFontSize(15);
+      doc.setTextColor(16, 24, 39);
+      doc.text('Détail ' + strrId, MARGIN, 18);
+      doc.setFontSize(9);
+      doc.setTextColor(110);
+      doc.text(rows.length + ' ligne(s) de comparaison', MARGIN, 24);
+
+      const detailFields = rows.map(function (r) { return r.field; });
+      doc.autoTable({
+        startY: 28,
+        margin: { left: MARGIN, right: MARGIN },
+        head: [['Section', 'OP', 'Libellé', 'Champ', 'ACTUEL', 'PROPOSER', 'DELTA', 'Statut']],
+        body: rows.map(function (r) {
+          return [r.section || '', r.op || '', r.label || '', r.field,
+            fmt(r.actual), fmt(r.proposed), fmt(r.delta),
+            PRF.exportXlsx.STATUS_FR[r.status] || r.status];
+        }),
+        styles: { fontSize: 8, cellPadding: 1.4, overflow: 'ellipsize' },
+        headStyles: { fillColor: [37, 99, 235] },
+        columnStyles: {
+          4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }
+        },
+        didParseCell: function (data) {
+          colorizeDelta(data, 6, function (i) { return detailFields[i]; });
+        }
+      });
+    });
+
+    addFooters(doc);
+    const fileName = 'rapport_comparaison_' + PRF.ui.dateStamp() + '.pdf';
+    doc.save(fileName);
+    PRF.errors.log('info', 'Export PDF généré en ' + Math.round(performance.now() - t0) + ' ms : ' + fileName);
+    PRF.ui.toast('Rapport PDF généré : ' + fileName, 'success');
+  }
+
+  return { run };
+})();

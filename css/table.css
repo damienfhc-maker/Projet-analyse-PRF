@@ -1,0 +1,129 @@
+/* ============================================================
+   table.css — Tableau de comparaison virtualisé
+   Le corps du tableau est rendu par le virtualiseur maison :
+   seules ~60 lignes existent dans le DOM quelle que soit la
+   volumétrie (100 000+ lignes supportées).
+   ============================================================ */
+
+.table-toolbar { flex: 0 0 auto; margin-bottom: 8px; }
+.toolbar-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.toolbar-row input[type=search] {
+  flex: 1; min-width: 220px; padding: 7px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+}
+.toolbar-row select { padding: 7px 8px; border: 1px solid var(--border); border-radius: var(--radius); }
+.toolbar-group { display: flex; gap: 6px; align-items: center; }
+.toolbar-right { margin-left: auto; }
+
+.strr-context-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.strr-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border); border-radius: 20px;
+  padding: 3px 12px; font-size: 12px; cursor: pointer; background: #fff;
+  user-select: none;
+}
+.strr-chip.on { border-color: var(--green); background: var(--green-bg); }
+.strr-chip.off { opacity: .55; text-decoration: line-through; }
+
+.table-stats { color: var(--text-dim); font-size: 12px; margin-top: 6px; }
+
+/* ---------- Grille ---------- */
+.comparison-table {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.ct-head { flex: 0 0 auto; overflow: hidden; border-bottom: 2px solid var(--border); background: #eef1f6; }
+.ct-head-inner { display: flex; }
+.ct-filters { flex: 0 0 auto; overflow: hidden; border-bottom: 1px solid var(--border); background: #f7f9fc; }
+.ct-filters-inner { display: flex; }
+
+.ct-col {
+  flex: 0 0 auto;
+  padding: 6px 8px;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-right: 1px solid var(--border);
+  display: flex; align-items: center; gap: 4px;
+}
+.ct-col .sort-ind { color: var(--primary); font-size: 10px; }
+.ct-filter-cell { flex: 0 0 auto; padding: 3px 4px; border-right: 1px solid transparent; }
+.ct-filter-cell input {
+  width: 100%; padding: 3px 6px; font-size: 11px;
+  border: 1px solid var(--border); border-radius: 4px;
+}
+
+/* Corps virtualisé */
+.ct-body { flex: 1; overflow: auto; position: relative; min-height: 0; }
+.ct-spacer { position: absolute; top: 0; left: 0; width: 1px; visibility: hidden; }
+.ct-row {
+  position: absolute;
+  left: 0;
+  display: flex;
+  height: var(--row-h);
+  line-height: calc(var(--row-h) - 2px);
+  border-bottom: 1px solid #eef1f6;
+  background: #fff;
+  contain: layout paint; /* isole le rendu de chaque ligne (performance) */
+  min-width: 100%;
+}
+.ct-row:hover { background: #f4f8ff; }
+.ct-row.deleted { opacity: .45; text-decoration: line-through; background: #faf5f5; }
+.ct-row.locked { background: #fbfaf3; }
+.ct-row.agg { font-weight: 600; background: #f6f8fb; }
+
+.ct-cell {
+  flex: 0 0 auto;
+  padding: 0 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-right: 1px solid #f0f2f6;
+}
+.ct-cell.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ct-cell.editable { cursor: cell; }
+.ct-cell.editable:hover { outline: 1px solid var(--primary); outline-offset: -1px; }
+.ct-cell input.cell-editor {
+  width: 100%; height: calc(var(--row-h) - 4px);
+  border: 1px solid var(--primary); border-radius: 3px;
+  font-size: 12px; padding: 0 5px; text-align: right;
+}
+.ct-cell input.cell-editor.invalid { border-color: var(--red); background: var(--red-bg); }
+
+/* Color coding : vert = amélioration, rouge = dégradation */
+.delta-good { background: var(--green-bg); color: var(--green); font-weight: 600; }
+.delta-bad { background: var(--red-bg); color: var(--red); font-weight: 600; }
+.delta-zero { color: var(--text-dim); }
+
+/* Statuts de ligne */
+.st-badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px; }
+.st-added { background: var(--green-bg); color: var(--green); }
+.st-removed { background: var(--red-bg); color: var(--red); }
+.st-modified { background: #dbeafe; color: var(--primary-dark); }
+.st-unchanged { background: #eef1f6; color: var(--text-dim); }
+
+/* Actions de ligne */
+.ct-cell.actions { display: flex; gap: 6px; align-items: center; }
+.row-act {
+  border: none; background: transparent; cursor: pointer;
+  font-size: 13px; padding: 0 2px; opacity: .6; line-height: 1;
+}
+.row-act:hover { opacity: 1; }
+.row-act.active { opacity: 1; }
+
+/* Largeurs par défaut des colonnes (redéfinies inline par le JS) */
+.w-strr { width: 110px; } .w-section { width: 150px; } .w-op { width: 70px; }
+.w-label { width: 180px; } .w-field { width: 150px; }
+.w-num { width: 110px; } .w-status { width: 90px; } .w-actions { width: 120px; }

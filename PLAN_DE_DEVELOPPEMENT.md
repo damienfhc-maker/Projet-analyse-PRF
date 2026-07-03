@@ -1,7 +1,21 @@
 # 🗺️ PLAN DE DÉVELOPPEMENT — Application web locale de comparaison Excel
 
 > Référence unique : [`CAHIER_DES_CHARGES.md`](./CAHIER_DES_CHARGES.md)
-> Statut : **en attente de validation — aucun code ne sera produit avant validation de ce plan.**
+> Statut : **validé, puis amendé et exécuté** (voir amendements ci-dessous).
+
+## ⚠️ Amendements post-validation (règles impératives du client)
+
+La validation de l'architecture s'est accompagnée de règles renforcées qui
+amendent les décisions D2 et D3 :
+
+| Décision | Amendement | Conséquence technique |
+|---|---|---|
+| D2 (tsc --noEmit) | **Ne jamais utiliser NodeJS** | Pas d'outillage Node : typage par JSDoc, tests exécutés dans le navigateur (`tests/tests.html`). |
+| D3 (mini serveur statique) | **Ne jamais utiliser de serveur** | Application ouverte directement en `file://` (double-clic sur `index.html`). Les modules ES étant bloqués en `file://`, le code utilise des scripts classiques chargés dans l'ordre des dépendances, sous l'espace de noms global `PRF`. |
+| D4 (pdfmake) | Choix final : **jsPDF + autotable** | Empreinte mémoire plus faible (pas de fichier de polices vfs), accents latins gérés nativement, vendorisé dans `vendor/`. |
+| — | Fichiers **CSV** ajoutés aux formats supportés | Exigé par les consignes (« fichiers CSV/XLS/XLSX lus une seule fois »). |
+
+Les autres décisions (D1, D5–D10) s'appliquent telles que validées.
 
 ---
 

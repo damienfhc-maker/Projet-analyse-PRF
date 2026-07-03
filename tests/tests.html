@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Tests unitaires — Comparateur STRR</title>
+  <!--
+    Suite de tests exécutable dans le navigateur, en file://, sans
+    Node ni serveur : ouvrir ce fichier suffit. Les classeurs Excel
+    de test sont fabriqués en mémoire via SheetJS puis passés dans la
+    chaîne réelle parser → normalizer → matcher → comparator.
+  -->
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 24px; background: #f4f6f9; }
+    h1 { font-size: 18px; }
+    #summary { font-size: 15px; font-weight: 700; padding: 10px 14px; border-radius: 8px; margin-bottom: 14px; }
+    #summary.ok { background: #dcfce7; color: #15803d; }
+    #summary.ko { background: #fee2e2; color: #b91c1c; }
+    .suite { background: #fff; border: 1px solid #d7dde5; border-radius: 8px; padding: 10px 16px; margin-bottom: 10px; }
+    .suite h2 { font-size: 14px; margin: 4px 0 8px; }
+    .case { font-size: 13px; padding: 2px 0; }
+    .pass::before { content: "✔ "; color: #15803d; }
+    .fail::before { content: "✘ "; color: #b91c1c; }
+    .fail { color: #b91c1c; }
+    .fail .detail { color: #7f1d1d; font-size: 12px; margin-left: 18px; display: block; }
+  </style>
+</head>
+<body>
+  <h1>Tests unitaires — Comparateur Excel STRR</h1>
+  <div id="summary">Exécution…</div>
+  <div id="results"></div>
+
+  <script src="../vendor/xlsx.full.min.js"></script>
+  <script src="../src/errors/errorHandler.js"></script>
+  <script src="../src/state/store.js"></script>
+  <script src="../src/state/history.js"></script>
+  <script src="../src/core/parser.js"></script>
+  <script src="../src/core/normalizer.js"></script>
+  <script src="../src/core/fieldRegistry.js"></script>
+  <script src="../src/core/matcher.js"></script>
+  <script src="../src/core/comparator.js"></script>
+  <script src="../src/core/searchIndex.js"></script>
+  <script src="../src/state/persistence.js"></script>
+  <script src="runner.js"></script>
+  <script src="coreTests.js"></script>
+</body>
+</html>

@@ -289,3 +289,40 @@ Le projet est validé si :
 ✔ export Excel fidèle
 ✔ export PDF lisible
 ✔ performance acceptable sur gros fichiers
+17. CONSIGNES DE DÉVELOPPEMENT POUR FABLE 5
+
+Consignes spécifiques
+
+Avant toute génération de code :
+
+- Lire intégralement le cahier des charges.
+- Construire un plan de développement.
+- Développer par modules indépendants.
+- Vérifier chaque module avant de passer au suivant.
+
+Pendant le développement :
+
+- Ne jamais produire de code inachevé.
+- Ne jamais produire de pseudo-code.
+- Ne jamais laisser de TODO.
+- Ne jamais générer une fonction sans son intégration complète.
+- Réutiliser les fonctions existantes.
+- Respecter strictement l'architecture.
+- Prioriser les performances.
+- Prioriser la maintenabilité.
+- Optimiser systématiquement la consommation mémoire.
+- Toutes les recherches doivent être effectuées sur la base JavaScript indexée en mémoire.
+
+Lors des corrections :
+
+- Modifier uniquement les fonctions concernées.
+- Ne jamais régénérer un fichier complet.
+- Fournir uniquement les blocs à remplacer.
+- Indiquer précisément leur emplacement.
+
+Avant de considérer le projet terminé :
+
+- Vérifier que tous les critères de recette sont satisfaits.
+- Vérifier qu'aucune fonctionnalité du cahier des charges n'a été omise.
+- Vérifier que l'application fonctionne entièrement hors ligne.
+- Vérifier qu'aucune lecture des fichiers CSV/XLS/XLSX n'est réalisée après l'indexation initiale.

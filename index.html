@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Comparateur Excel STRR — ACTUEL / PROPOSER</title>
+  <!--
+    Application web locale de comparaison Excel (offline-first).
+    S'ouvre directement en file:// — aucun serveur, aucun framework,
+    aucune dépendance réseau. Toutes les librairies sont vendorisées.
+    Les scripts sont des scripts classiques (pas de modules ES, qui
+    seraient bloqués en file://) chargés dans l'ordre des dépendances,
+    chacun s'enregistrant dans l'espace de noms global PRF.
+  -->
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/table.css">
+</head>
+<body>
+
+  <!-- ===== Barre de navigation ===== -->
+  <header id="topbar">
+    <div class="brand">📊 Comparateur STRR <span class="brand-sub">ACTUEL / PROPOSER</span></div>
+    <nav id="main-nav">
+      <button class="nav-btn active" data-view="dashboard">1. Import &amp; fichiers</button>
+      <button class="nav-btn" data-view="fields" disabled>2. Sélection des champs</button>
+      <button class="nav-btn" data-view="table" disabled>3. Comparaison</button>
+    </nav>
+    <div class="topbar-actions">
+      <button id="btn-session-save" class="btn btn-ghost" title="Exporter la session complète au format JSON">💾 Session</button>
+      <button id="btn-session-load" class="btn btn-ghost" title="Recharger une session JSON exportée">📂 Charger</button>
+    </div>
+  </header>
+
+  <!-- ===== Vue 1 : Dashboard (import + liste STRR) ===== -->
+  <main id="view-dashboard" class="view">
+    <section class="panel">
+      <h2>Import des fichiers Excel</h2>
+      <div id="dropzone" class="dropzone" tabindex="0">
+        <div class="dropzone-inner">
+          <div class="dropzone-icon">⬇️</div>
+          <p><strong>Glissez-déposez</strong> vos fichiers ici<br>ou</p>
+          <button id="btn-browse" class="btn btn-primary">Parcourir…</button>
+          <p class="hint">Formats acceptés : .xls, .xlsx, .xlsm, .csv — sélection multiple possible.<br>
+          Chaque fichier n'est lu qu'une seule fois puis indexé en mémoire.</p>
+        </div>
+        <input type="file" id="file-input" multiple accept=".xls,.xlsx,.xlsm,.csv" hidden>
+      </div>
+      <div id="import-progress" class="import-progress" hidden></div>
+    </section>
+
+    <section class="panel">
+      <h2>Fichiers importés</h2>
+      <div id="file-list" class="file-list empty">Aucun fichier importé.</div>
+    </section>
+
+    <section class="panel">
+      <h2>Référentiels STRR détectés</h2>
+      <div id="strr-list" class="strr-list empty">Importez des fichiers pour détecter les STRR.</div>
+      <div class="panel-footer">
+        <button id="btn-compare" class="btn btn-primary btn-lg" disabled>Comparer ➜</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== Vue 2 : Sélection dynamique des champs ===== -->
+  <main id="view-fields" class="view" hidden>
+    <section class="panel">
+      <div class="panel-head-row">
+        <h2>Sélection des champs à comparer</h2>
+        <div class="profile-bar">
+          <select id="profile-select" title="Profils de comparaison sauvegardés"></select>
+          <button id="btn-profile-load" class="btn btn-ghost" title="Recharger le profil sélectionné">Charger</button>
+          <button id="btn-profile-save" class="btn btn-ghost" title="Sauvegarder la sélection courante comme profil">Enregistrer…</button>
+          <button id="btn-profile-delete" class="btn btn-ghost" title="Supprimer le profil sélectionné">🗑</button>
+        </div>
+      </div>
+      <div class="field-toolbar">
+        <input type="search" id="field-filter" placeholder="Filtrer les groupes / champs…">
+        <label class="chk"><input type="checkbox" id="chk-fuzzy"> Fuzzy matching des libellés (fallback)</label>
+        <button id="btn-fields-all" class="btn btn-ghost">Tout cocher</button>
+        <button id="btn-fields-none" class="btn btn-ghost">Tout décocher</button>
+      </div>
+      <div id="field-groups" class="field-groups"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Prévisualisation live <span class="hint-inline">(50 premières lignes de comparaison)</span></h2>
+      <div id="field-preview" class="preview-table-wrap"></div>
+      <div class="panel-footer">
+        <button id="btn-back-dashboard" class="btn btn-ghost">⟵ Retour</button>
+        <button id="btn-run-compare" class="btn btn-primary btn-lg">Lancer la comparaison ➜</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== Vue 3 : Tableau de comparaison ===== -->
+  <main id="view-table" class="view view-table" hidden>
+    <section class="table-toolbar">
+      <div class="toolbar-row">
+        <input type="search" id="global-search" placeholder="🔍 Recherche globale (index mémoire)…">
+        <select id="level-select" title="Niveau de comparaison">
+          <option value="op">Niveau OP (détail)</option>
+          <option value="section">Niveau Section (agrégé)</option>
+          <option value="global">Niveau STRR (global)</option>
+        </select>
+        <div class="toolbar-group">
+          <button id="btn-undo" class="btn btn-ghost" title="Annuler (Ctrl+Z)" disabled>↩ Annuler</button>
+          <button id="btn-redo" class="btn btn-ghost" title="Rétablir (Ctrl+Y)" disabled>↪ Rétablir</button>
+        </div>
+        <label class="chk"><input type="checkbox" id="chk-show-deleted"> Afficher les éléments supprimés</label>
+        <div class="toolbar-group toolbar-right">
+          <div class="dropdown" id="col-toggle-dd">
+            <button class="btn btn-ghost" id="btn-col-toggle">☰ Colonnes ▾</button>
+            <div class="dropdown-menu" id="col-toggle-menu" hidden></div>
+          </div>
+          <button id="btn-export-xlsx" class="btn btn-primary" title="Export Excel multi-feuilles">⬇ Excel</button>
+          <button id="btn-export-pdf" class="btn btn-primary" title="Export PDF paginé">⬇ PDF</button>
+        </div>
+      </div>
+      <div id="strr-context-bar" class="strr-context-bar"></div>
+      <div id="table-stats" class="table-stats"></div>
+    </section>
+    <section id="comparison-table" class="comparison-table"></section>
+  </main>
+
+  <!-- ===== Conteneurs des composants transverses ===== -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+  <div id="modal-root"></div>
+  <input type="file" id="session-file-input" accept=".json" hidden>
+
+  <!-- ===== Librairies vendorisées (100 % locales) ===== -->
+  <script src="vendor/xlsx.full.min.js"></script>
+  <script src="vendor/jspdf.umd.min.js"></script>
+  <script src="vendor/jspdf.plugin.autotable.min.js"></script>
+
+  <!-- ===== Modules applicatifs (ordre = dépendances) ===== -->
+  <script src="src/errors/errorHandler.js"></script>
+  <script src="src/state/store.js"></script>
+  <script src="src/state/history.js"></script>
+  <script src="src/core/parser.js"></script>
+  <script src="src/core/normalizer.js"></script>
+  <script src="src/core/fieldRegistry.js"></script>
+  <script src="src/core/matcher.js"></script>
+  <script src="src/core/comparator.js"></script>
+  <script src="src/core/searchIndex.js"></script>
+  <script src="src/state/persistence.js"></script>
+  <script src="src/export/exportXlsx.js"></script>
+  <script src="src/export/exportPdf.js"></script>
+  <script src="src/ui/components.js"></script>
+  <script src="src/ui/virtualScroller.js"></script>
+  <script src="src/ui/dashboard.js"></script>
+  <script src="src/ui/fieldSelector.js"></script>
+  <script src="src/ui/comparisonTable.js"></script>
+  <script src="src/app.js"></script>
+</body>
+</html>
