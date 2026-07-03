@@ -23,8 +23,15 @@ PRF.normalizer = (function () {
   /** Motif d'exclusion obligatoire (CDC §4.5). */
   const EXCLUDE_RE = /%\s*(rubrique|total)/i;
 
-  /** Identifiant STRR : « STRR-00339 », « strr 339 »… */
-  const STRR_RE = /STRR[\s_-]*(\d{1,6})/i;
+  /**
+   * Identifiant de référentiel : préfixe alphabétique quelconque, un
+   * séparateur (tiret, underscore ou espace), puis au moins 2 chiffres —
+   * « STRR-00339 », « ABC-00042 », « strr 339 »…
+   * Le séparateur et le minimum de 2 chiffres sont obligatoires pour ne
+   * pas confondre avec des noms techniques (« Feuil1 », « Rev-1 »…) ;
+   * le préfixe « OP » est réservé aux codes opération (§5.2).
+   */
+  const REF_RE = /\b([A-Z]{2,10})[\s_-]+(\d{2,8})\b/i;
 
   /** Code opération : « OP10 », « op 20 », « OP-30 »… */
   const OP_RE = /(?:^|[\s(])OP[\s_-]*(\d{1,4})\b/i;
@@ -35,19 +42,24 @@ PRF.normalizer = (function () {
   let seq = 0; // générateur d'identifiants de fichiers
 
   /**
-   * Normalise un identifiant STRR sur 5 chiffres : « STRR-00339 ».
+   * Normalise un identifiant de référentiel : préfixe en majuscules,
+   * tiret, chiffres complétés à 5 positions minimum.
+   * « strr 339 » → « STRR-00339 », « abc-42 » → « ABC-00042 ».
    * @param {string} raw
    * @returns {string|null}
    */
   function normalizeStrrId(raw) {
-    const m = STRR_RE.exec(String(raw || ''));
+    const m = REF_RE.exec(String(raw || ''));
     if (!m) return null;
-    return 'STRR-' + m[1].padStart(5, '0');
+    const prefix = m[1].toUpperCase();
+    if (prefix === 'OP') return null; // code opération, pas un référentiel
+    const digits = m[2].length >= 5 ? m[2] : m[2].padStart(5, '0');
+    return prefix + '-' + digits;
   }
 
   /**
-   * Détecte l'identifiant STRR dans un texte libre (nom de fichier,
-   * nom de feuille, cellule d'en-tête).
+   * Détecte l'identifiant de référentiel dans un texte libre (nom de
+   * fichier, nom de feuille, cellule d'en-tête).
    */
   function detectStrrId(text) { return normalizeStrrId(text); }
 
@@ -97,69 +109,170 @@ PRF.normalizer = (function () {
   function isEmpty(v) { return v === null || v === undefined || String(v).trim() === ''; }
 
   /**
-   * Détecte la ligne d'en-tête d'une feuille : parmi les 30 premières
+   * Détecte la ligne d'en-tête d'une feuille : parmi les 100 premières
    * lignes, celle qui contient le plus de cellules texte distinctes
    * (au moins 2) et qui est suivie d'au moins une ligne de données.
+   * Repli : première ligne contenant au moins 2 cellules non vides,
+   * quel que soit leur type (en-têtes numériques, dates…).
    * @param {any[][]} rows
    * @returns {number} index de la ligne d'en-tête (-1 si introuvable)
    */
   function detectHeaderRow(rows) {
-    let best = -1, bestScore = 0;
-    const limit = Math.min(rows.length - 1, 30);
+    let best = -1, bestScore = 0, fallback = -1;
+    const limit = Math.min(rows.length - 1, 100);
     for (let i = 0; i <= limit; i++) {
       const row = rows[i] || [];
       const seen = new Set();
-      let score = 0;
+      let strScore = 0, filled = 0;
       for (let c = 0; c < row.length; c++) {
         const v = row[c];
-        if (typeof v === 'string' && v.trim() !== '' && !seen.has(v.trim().toLowerCase())) {
+        if (v === null || v === undefined || String(v).trim() === '') continue;
+        filled++;
+        if (typeof v === 'string' && !seen.has(v.trim().toLowerCase())) {
           seen.add(v.trim().toLowerCase());
-          score++;
+          strScore++;
         }
       }
-      if (score >= 2 && score > bestScore && i < rows.length - 1) {
-        best = i; bestScore = score;
+      if (i < rows.length - 1) {
+        if (strScore >= 2 && strScore > bestScore) { best = i; bestScore = strScore; }
+        if (fallback < 0 && filled >= 2) fallback = i;
       }
     }
-    return best;
+    return best >= 0 ? best : fallback;
+  }
+
+  /** Nom de colonne au format Excel : 0 → A, 1 → B, 26 → AA… */
+  function excelColName(c) {
+    let name = '';
+    c++;
+    while (c > 0) {
+      const r = (c - 1) % 26;
+      name = String.fromCharCode(65 + r) + name;
+      c = Math.floor((c - 1) / 26);
+    }
+    return name;
+  }
+
+  /**
+   * Une colonne contient-elle majoritairement du texte non numérique
+   * dans la zone de données ? (sert à identifier la colonne des
+   * libellés quand son en-tête est vide — cas fréquent).
+   * @param {any[][]} rows
+   * @param {number} headerIdx
+   * @param {number} col
+   */
+  function isMostlyText(rows, headerIdx, col) {
+    let text = 0, other = 0;
+    const limit = Math.min(rows.length, headerIdx + 1 + 200);
+    for (let r = headerIdx + 1; r < limit; r++) {
+      const v = (rows[r] || [])[col];
+      if (isEmpty(v)) continue;
+      if (typeof v === 'string' && !NUM_RE.test(v.trim())) text++;
+      else other++;
+    }
+    return text > 0 && text >= other;
+  }
+
+  /**
+   * Largeur réelle de la zone de données (certaines feuilles ont des
+   * colonnes de données SANS cellule d'en-tête : elles doivent quand
+   * même être détectées).
+   * @param {any[][]} rows
+   * @param {number} headerIdx
+   */
+  function dataWidth(rows, headerIdx) {
+    let width = (rows[headerIdx] || []).length;
+    const limit = Math.min(rows.length, headerIdx + 1 + 200);
+    for (let r = headerIdx + 1; r < limit; r++) {
+      const row = rows[r] || [];
+      for (let c = row.length - 1; c >= width; c--) {
+        if (!isEmpty(row[c])) { width = c + 1; break; }
+      }
+    }
+    return width;
   }
 
   /**
    * Normalise une feuille brute en enregistrements + colonnes détectées.
    * @param {any[][]} rows  Cellules brutes (header:1)
-   * @returns {{records:Array, columns:string[]}|null} null si la feuille
-   *          ne contient aucune donnée exploitable (feuille non pertinente).
+   * @returns {{records:Array, columns:string[]}|{error:string}} objet
+   *          {error} si la feuille n'est pas exploitable, avec la raison
+   *          précise (diagnostic affiché à l'utilisateur, CDC §13).
    */
   function normalizeSheet(rows) {
     const headerIdx = detectHeaderRow(rows);
-    if (headerIdx < 0) return null;
+    if (headerIdx < 0) {
+      return { error: 'aucune ligne d\'en-tête détectée dans les 100 premières lignes' };
+    }
 
-    const header = rows[headerIdx];
+    const header = rows[headerIdx] || [];
+    const width = dataWidth(rows, headerIdx);
 
     // --- Cartographie des colonnes -------------------------------------
-    // labelCol : première colonne texte (libellés / désignations)
+    // labelCol : colonne des libellés / désignations
     // opCol    : colonne dédiée aux codes OP si elle existe
     // fieldCols: colonnes de données, HORS exclusions §4.5
     let labelCol = -1, opCol = -1;
     const fieldCols = []; // { index, name }
     const usedNames = new Set();
+    const unnamed = []; // colonnes sans en-tête mais potentiellement porteuses de données
 
-    for (let c = 0; c < header.length; c++) {
+    function addField(index, name) {
+      let unique = name, k = 2;
+      // Dédoublonnage des noms de colonnes identiques (« Coût », « Coût (2) »)
+      while (usedNames.has(unique.toLowerCase())) unique = name + ' (' + (k++) + ')';
+      usedNames.add(unique.toLowerCase());
+      fieldCols.push({ index: index, name: unique });
+    }
+
+    // Passe 1 : colonnes titrées. La colonne des libellés est reconnue
+    // par son intitulé, sinon la première colonne titrée fait foi.
+    let firstNamed = -1;
+    for (let c = 0; c < width; c++) {
       const raw = header[c];
-      if (isEmpty(raw)) continue;
+      if (isEmpty(raw)) { unnamed.push(c); continue; }
       const name = String(raw).trim();
       if (EXCLUDE_RE.test(name)) continue;              // exclusion colonne dès parsing
       if (opCol < 0 && /^(op|op[ée]ration|code\s*op)s?\b/i.test(name) && !/travail/i.test(name)) {
         opCol = c; continue;
       }
-      if (labelCol < 0) { labelCol = c; continue; }     // 1re colonne conservée = libellés
-      // Dédoublonnage des noms de colonnes identiques (« Coût », « Coût (2) »)
-      let unique = name, k = 2;
-      while (usedNames.has(unique.toLowerCase())) unique = name + ' (' + (k++) + ')';
-      usedNames.add(unique.toLowerCase());
-      fieldCols.push({ index: c, name: unique });
+      if (labelCol < 0 &&
+        /d[ée]sign|libell|description|rubrique|intitul|d[ée]tail|poste|nom\b/i.test(name)) {
+        labelCol = c; continue;
+      }
+      if (firstNamed < 0) { firstNamed = c; continue; } // candidat libellé par défaut
+      addField(c, name);
     }
-    if (labelCol < 0 || fieldCols.length === 0) return null;
+
+    // Passe 2 : colonnes SANS en-tête. Cas fréquents : colonne des
+    // libellés non titrée, ou colonnes de valeurs sans titre.
+    for (let i = 0; i < unnamed.length; i++) {
+      const c = unnamed[i];
+      if (labelCol < 0 && isMostlyText(rows, headerIdx, c)) { labelCol = c; continue; }
+      // Colonne de données anonyme : nommée par sa lettre Excel
+      let hasData = false;
+      const scanLimit = Math.min(rows.length, headerIdx + 1 + 200);
+      for (let r = headerIdx + 1; r < scanLimit; r++) {
+        if (!isEmpty((rows[r] || [])[c])) { hasData = true; break; }
+      }
+      if (hasData) addField(c, 'Colonne ' + excelColName(c));
+    }
+
+    // La première colonne titrée sert de libellé si rien de mieux ;
+    // sinon elle redevient une colonne de données.
+    if (labelCol < 0 && firstNamed >= 0) { labelCol = firstNamed; firstNamed = -1; }
+    if (firstNamed >= 0) {
+      addField(firstNamed, String(header[firstNamed]).trim());
+      fieldCols.sort(function (a, b) { return a.index - b.index; });
+    }
+
+    if (labelCol < 0 && opCol >= 0) { labelCol = opCol; } // feuille pilotée uniquement par OP
+    if (labelCol < 0) {
+      return { error: 'aucune colonne de libellés identifiable (en-tête ligne ' + (headerIdx + 1) + ')' };
+    }
+    if (fieldCols.length === 0) {
+      return { error: 'aucune colonne de données exploitable (en-tête ligne ' + (headerIdx + 1) + ')' };
+    }
 
     // --- Parcours des lignes de données --------------------------------
     const records = [];
@@ -203,7 +316,10 @@ PRF.normalizer = (function () {
       });
     }
 
-    return records.length ? { records: records, columns: fieldCols.map(function (f) { return f.name; }) } : null;
+    if (!records.length) {
+      return { error: 'aucune ligne de données sous l\'en-tête (ligne ' + (headerIdx + 1) + ')' };
+    }
+    return { records: records, columns: fieldCols.map(function (f) { return f.name; }) };
   }
 
   /**
@@ -239,11 +355,17 @@ PRF.normalizer = (function () {
     const fileType = detectType(parsed.name);
     const sheets = [];
 
+    const reasons = [];
+
     parsed.sheets.forEach(function (rawSheet) {
       const norm = normalizeSheet(rawSheet.rows);
-      if (!norm) {
-        PRF.errors.log('info', 'Feuille ignorée (aucune donnée exploitable) : ' +
-          parsed.name + ' / ' + rawSheet.name);
+      if (norm.error) {
+        reasons.push('feuille « ' + rawSheet.name + ' » : ' + norm.error);
+        // Journal technique : aperçu des premières lignes pour diagnostic
+        PRF.errors.log('warn', 'Feuille non exploitable : ' + parsed.name + ' / ' + rawSheet.name +
+          ' — ' + norm.error, {
+            apercu: rawSheet.rows.slice(0, 10).map(function (r) { return (r || []).slice(0, 12); })
+          });
         return; // extraction des feuilles pertinentes uniquement (§4.3)
       }
       const meta = scanSheetMeta(rawSheet.rows);
@@ -257,8 +379,8 @@ PRF.normalizer = (function () {
     });
 
     if (!sheets.length) {
-      throw new Error('Structure Excel inconnue : aucune feuille exploitable dans « ' + parsed.name + ' ». ' +
-        'Vérifiez que le fichier contient une ligne d\'en-tête et des lignes de données.');
+      throw new Error('Structure Excel inconnue dans « ' + parsed.name + ' » — ' +
+        reasons.join(' ; ') + '. Détail technique dans la console (F12).');
     }
 
     return { id: 'f' + (++seq) + '-' + Date.now(), name: parsed.name, size: parsed.size, sheets: sheets };

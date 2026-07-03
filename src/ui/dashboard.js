@@ -110,9 +110,13 @@ PRF.dashboard = (function () {
     const file = PRF.store.state.files.find(function (f) { return f.id === fileId; });
     if (!file || !file.sheets[sheetIdx]) return;
     if (prop === 'strrId') {
-      const norm = PRF.normalizer.normalizeStrrId(value) ||
-        (value.trim() ? 'STRR-' + value.trim().replace(/\D/g, '').padStart(5, '0') : null);
-      if (!norm) { PRF.errors.userWarn('Identifiant STRR invalide : « ' + value + ' ».'); render(); return; }
+      const norm = PRF.normalizer.normalizeStrrId(value);
+      if (!norm) {
+        PRF.errors.userWarn('Identifiant de référentiel invalide : « ' + value +
+          ' ». Format attendu : lettres + chiffres (ex. STRR-00339, ABC-00042).');
+        render();
+        return;
+      }
       file.sheets[sheetIdx].strrId = norm;
     } else {
       file.sheets[sheetIdx].type = value || null;
@@ -144,7 +148,7 @@ PRF.dashboard = (function () {
           sheet.records.length + ' ligne(s), ' + sheet.columns.length + ' champ(s) — ' +
           (strrOk
             ? '<strong>' + esc(sheet.strrId) + '</strong>'
-            : 'STRR : <input type="text" placeholder="ex : STRR-00339" data-file="' + file.id +
+            : 'Référentiel : <input type="text" placeholder="ex : STRR-00339, ABC-00042" data-file="' + file.id +
               '" data-sheet="' + si + '" data-prop="strrId">') + ' ' +
           '<select data-file="' + file.id + '" data-sheet="' + si + '" data-prop="type"' +
             (typeOk ? '' : ' class="badge-warn"') + '>' +
@@ -180,7 +184,7 @@ PRF.dashboard = (function () {
 
     if (!st.datasets.size) {
       els.strrList.className = 'strr-list empty';
-      els.strrList.textContent = 'Importez des fichiers pour détecter les STRR.';
+      els.strrList.textContent = 'Importez des fichiers pour détecter les référentiels (STRR-00339, ABC-00042…).';
       els.compare.disabled = true;
       PRF.app.updateNav();
       return;

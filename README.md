@@ -19,8 +19,10 @@ Plan de développement : [`PLAN_DE_DEVELOPPEMENT.md`](./PLAN_DE_DEVELOPPEMENT.md
 
 1. **Import & fichiers** — glisser-déposer les fichiers `.xls` / `.xlsx` /
    `.xlsm` / `.csv` (sélection multiple). Chaque fichier est **lu une seule
-   fois** puis indexé en mémoire. Les STRR et types (ACTUEL / PROPOSER) sont
-   détectés automatiquement ; les cas ambigus se résolvent d'un clic.
+   fois** puis indexé en mémoire. Les référentiels et types (ACTUEL / PROPOSER)
+   sont détectés automatiquement ; les cas ambigus se résolvent d'un clic.
+   Les identifiants acceptent tout préfixe alphabétique : `STRR-00339`,
+   `ABC-00042`, `PROD 00007`…
    Les colonnes et lignes `% Rubrique` / `% Total` sont supprimées dès le parsing.
 2. **Sélection des champs** — colonnes détectées dynamiquement, groupées
    (Coûts / Marges / Autres), profils sauvegardables (« Analyse coût »…),

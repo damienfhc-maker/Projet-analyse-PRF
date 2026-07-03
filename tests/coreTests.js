@@ -124,6 +124,63 @@ describe('Normalizer — structure data-driven et exclusions (§4.4, §4.5)', fu
     assertEqual(PRF.normalizer.normalizeStrrId('strr 339'), 'STRR-00339');
     assertEqual(PRF.normalizer.detectType('fichier PROPOSER final.xlsx'), 'PROPOSER');
   });
+
+  it('accepte les identifiants génériques AAA-XXXXX (préfixe libre)', function () {
+    assertEqual(PRF.normalizer.normalizeStrrId('ABC-00042 - ACTUEL.xlsx'), 'ABC-00042');
+    assertEqual(PRF.normalizer.normalizeStrrId('abc-42'), 'ABC-00042', 'complété à 5 chiffres');
+    assertEqual(PRF.normalizer.normalizeStrrId('XYZW_123456 - PROPOSER'), 'XYZW-123456', '6 chiffres conservés');
+    assertEqual(PRF.normalizer.normalizeStrrId('PROD 00007'), 'PROD-00007', 'séparateur espace');
+  });
+
+  it('rejette les faux identifiants (codes OP, noms techniques)', function () {
+    assertEqual(PRF.normalizer.normalizeStrrId('OP 10'), null, 'OP réservé aux opérations');
+    assertEqual(PRF.normalizer.normalizeStrrId('Feuil1'), null, 'pas de séparateur');
+    assertEqual(PRF.normalizer.normalizeStrrId('Rev-1'), null, 'moins de 2 chiffres');
+    assertEqual(PRF.normalizer.normalizeStrrId('Données-1'), null, 'accents + 1 chiffre');
+  });
+});
+
+describe('Normalizer — structures Excel atypiques (robustesse import)', function () {
+
+  it('colonne des libellés SANS en-tête (cas fréquent)', function () {
+    const res = PRF.normalizer.normalizeSheet([
+      ['STRR-00339 - ACTUEL'],
+      [null, 'OP', 'Matière'],
+      ['S1'],
+      ['Perçage', 'OP10', 5]
+    ]);
+    assertTrue(!res.error, 'feuille exploitable : ' + (res.error || ''));
+    assertEqual(res.records.length, 1);
+    assertEqual(res.records[0].label, 'Perçage');
+    assertEqual(res.records[0].section, 'S1');
+    assertClose(res.records[0].fields['Matière'], 5);
+  });
+
+  it('en-tête au-delà de la ligne 30 (bloc de titre volumineux)', function () {
+    const rows = [];
+    for (let i = 0; i < 39; i++) rows.push([]);
+    rows.push(['Désignation', 'OP', 'Matière']);
+    rows.push(['Perçage', 'OP10', 5]);
+    const res = PRF.normalizer.normalizeSheet(rows);
+    assertTrue(!res.error, 'en-tête profond détecté : ' + (res.error || ''));
+    assertEqual(res.records.length, 1);
+  });
+
+  it('colonne de données sans en-tête → nommée par sa lettre Excel', function () {
+    const res = PRF.normalizer.normalizeSheet([
+      ['Désignation', 'OP', 'Matière', null],
+      ['S1'],
+      ['Perçage', 'OP10', 5, 7]
+    ]);
+    assertTrue(!res.error);
+    assertEqual(res.columns, ['Matière', 'Colonne D']);
+    assertClose(res.records[0].fields['Colonne D'], 7);
+  });
+
+  it('feuille vide ou sans structure → raison d\'échec explicite', function () {
+    assertTrue(!!PRF.normalizer.normalizeSheet([]).error, 'feuille vide');
+    assertTrue(!!PRF.normalizer.normalizeSheet([['titre seul'], ['x']]).error, 'pas d\'en-tête');
+  });
 });
 
 describe('Matcher — appariement OP / libellé / ordre (§5)', function () {
