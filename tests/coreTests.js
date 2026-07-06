@@ -181,6 +181,47 @@ describe('Normalizer — structures Excel atypiques (robustesse import)', functi
     assertTrue(!!PRF.normalizer.normalizeSheet([]).error, 'feuille vide');
     assertTrue(!!PRF.normalizer.normalizeSheet([['titre seul'], ['x']]).error, 'pas d\'en-tête');
   });
+
+  it('structure réelle : titres hiérarchiques cols 1-7 (fusion), valeurs cols 8-10', function () {
+    const N = null;
+    const res = PRF.normalizer.normalizeSheet([
+      // En-tête : seules les colonnes de valeurs sont titrées
+      [N, N, N, N, N, N, N, 'Coût matière', 'Coût machine', 'Coût MO'],
+      // Titre profondeur 1 (cellule fusionnée sur la ligne)
+      ['Article A', N, N, N, N, N, N, N, N, N],
+      // Titre profondeur 2
+      [N, 'Sous-groupe 1', N, N, N, N, N, N, N, N],
+      // Lignes de données : titre en colonne 3, valeurs en 8-10
+      [N, N, 'Perçage OP10', N, N, N, N, 12.5, 8.2, 3],
+      [N, N, 'Fraisage OP20', N, N, N, N, 10, '7,5', 2],
+      // Ligne exclue §4.5 même en profondeur
+      [N, N, '% Total', N, N, N, N, 22.5, 15.7, 5],
+      // Nouveau titre profondeur 1 : remplace toute la hiérarchie
+      ['Article B', N, N, N, N, N, N, N, N, N],
+      [N, N, 'Contrôle', N, N, N, N, 5, 2, 1]
+    ]);
+    assertTrue(!res.error, 'feuille exploitable : ' + (res.error || ''));
+    assertEqual(res.columns, ['Coût matière', 'Coût machine', 'Coût MO'],
+      'valeurs = colonnes 8-10 uniquement');
+    assertEqual(res.records.length, 3, '% Total exclu');
+    assertEqual(res.records[0].section, 'Article A › Sous-groupe 1', 'hiérarchie par profondeur');
+    assertEqual(res.records[0].operation, 'OP10', 'OP extrait du titre');
+    assertClose(res.records[1].fields['Coût machine'], 7.5, 'nombre FR en zone de valeurs');
+    assertEqual(res.records[2].section, 'Article B', 'nouveau titre remplace la hiérarchie');
+  });
+
+  it('les colonnes de titres contenant quelques nombres restent des titres', function () {
+    const N = null;
+    const res = PRF.normalizer.normalizeSheet([
+      ['Désignation', 'Réf', 'Valeur'],
+      ['Groupe', N, N],
+      ['Pièce usinée', 'A-12', 10],
+      ['Pièce brute', 'B-34', 20]
+    ]);
+    assertTrue(!res.error);
+    assertEqual(res.columns, ['Valeur'], 'Réf (texte) n\'est pas une colonne de valeurs');
+    assertEqual(res.records[0].label, 'Pièce usinée');
+  });
 });
 
 describe('Matcher — appariement OP / libellé / ordre (§5)', function () {

@@ -29,18 +29,6 @@ PRF.exportXlsx = (function () {
     return String(name).replace(/[\\/?*[\]:]/g, '-').slice(0, 31);
   }
 
-  /** Colonnes exportables et leur extraction, alignées sur l'UI. */
-  const COLS = [
-    { key: 'section', label: 'Section', get: function (r) { return r.section || ''; } },
-    { key: 'op', label: 'OP', get: function (r) { return r.op || ''; } },
-    { key: 'label', label: 'Libellé', get: function (r) { return r.label || ''; } },
-    { key: 'field', label: 'Champ', get: function (r) { return r.field; } },
-    { key: 'actual', label: 'ACTUEL', get: function (r) { return r.actual; } },
-    { key: 'proposed', label: 'PROPOSER', get: function (r) { return r.proposed; } },
-    { key: 'delta', label: 'DELTA', get: function (r) { return r.delta; } },
-    { key: 'status', label: 'Statut', get: function (r) { return STATUS_FR[r.status] || r.status; } }
-  ];
-
   /**
    * Lance l'export Excel à partir de la vue courante du tableau.
    * La vue fournit les lignes détaillées déjà filtrées/triées et la
@@ -66,9 +54,10 @@ PRF.exportXlsx = (function () {
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(synth), 'Synthèse');
 
-    // ---- Feuilles 2+ : détail par STRR ---------------------------------
-    // Colonnes exportées = colonnes visibles dans l'UI (toggle respecté).
-    const cols = COLS.filter(function (c) { return view.visibleColumns.has(c.key); });
+    // ---- Feuilles 2+ : détail par STRR, GROUPÉ PAR ARTICLE -------------
+    // Mise en page : ligne-titre = nom de l'article (colonne A), puis
+    // une ligne par champ : A = champ, B = ACTUEL, C = PROPOSER,
+    // D = DELTA, E = statut.
     const byStrr = new Map();
     view.detailRows.forEach(function (r) {
       let arr = byStrr.get(r.strrId);
@@ -77,28 +66,40 @@ PRF.exportXlsx = (function () {
     });
 
     byStrr.forEach(function (rows, strrId) {
-      const aoa = [cols.map(function (c) { return c.label; })];
+      const aoa = [['Article / Champ', 'ACTUEL', 'PROPOSER', 'DELTA', 'Statut']];
+      const merges = [];
+
+      /** Ligne-titre fusionnée sur toute la largeur. */
+      function pushTitle(text) {
+        merges.push({ s: { r: aoa.length, c: 0 }, e: { r: aoa.length, c: 4 } });
+        aoa.push([text, null, null, null, null]);
+      }
+
+      // Les lignes arrivent triées : les articles sont contigus
+      let lastKey = null;
       rows.forEach(function (r) {
-        aoa.push(cols.map(function (c) { return c.get(r); }));
+        const key = (r.section || '') + '¦' + (r.op || '') + '¦' + r.label;
+        if (key !== lastKey) {
+          lastKey = key;
+          const hasOp = r.op && r.label.toUpperCase().indexOf(r.op.toUpperCase()) >= 0;
+          pushTitle(r.label + (r.op && !hasOp ? ' · ' + r.op : '') +
+            (r.section ? '  —  ' + r.section : ''));
+        }
+        aoa.push([r.field, r.actual, r.proposed, r.delta, STATUS_FR[r.status] || r.status]);
       });
-      // Ligne de totaux par champ en pied de feuille (lecture rapide)
+
+      // Bloc de totaux par champ en pied de feuille (lecture rapide)
       const totals = PRF.comparator.aggregate(rows, 'global');
-      totals.forEach(function (g) {
-        aoa.push(cols.map(function (c) {
-          if (c.key === 'label') return 'TOTAL';
-          if (c.key === 'field') return g.field;
-          if (c.key === 'actual') return g.actual;
-          if (c.key === 'proposed') return g.proposed;
-          if (c.key === 'delta') return g.delta;
-          if (c.key === 'status') return 'Total';
-          return '';
-        }));
-      });
+      if (totals.length) {
+        pushTitle('TOTAL ' + strrId);
+        totals.forEach(function (g) {
+          aoa.push([g.field, g.actual, g.proposed, g.delta, 'Total']);
+        });
+      }
+
       const ws = XLSX.utils.aoa_to_sheet(aoa);
-      // Largeurs de colonnes raisonnables pour l'ouverture dans Excel
-      ws['!cols'] = cols.map(function (c) {
-        return { wch: c.key === 'label' || c.key === 'field' ? 26 : 14 };
-      });
+      ws['!merges'] = merges;
+      ws['!cols'] = [{ wch: 42 }, { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 12 }];
       XLSX.utils.book_append_sheet(wb, ws, sheetName(strrId));
     });
 

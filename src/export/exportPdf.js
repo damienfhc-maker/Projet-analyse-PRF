@@ -142,23 +142,41 @@ PRF.exportPdf = (function () {
       doc.setTextColor(110);
       doc.text(rows.length + ' ligne(s) de comparaison', MARGIN, 24);
 
-      const detailFields = rows.map(function (r) { return r.field; });
+      // Mise en page groupée par article : une ligne-titre (nom de
+      // l'article, pleine largeur) puis une ligne par champ comparé.
+      const body = [];
+      const rowFields = []; // champ associé à chaque ligne du corps (null = titre)
+      let lastKey = null;
+      rows.forEach(function (r) {
+        const key = (r.section || '') + '¦' + (r.op || '') + '¦' + r.label;
+        if (key !== lastKey) {
+          lastKey = key;
+          const hasOp = r.op && r.label.toUpperCase().indexOf(r.op.toUpperCase()) >= 0;
+          body.push([{
+            content: r.label + (r.op && !hasOp ? ' · ' + r.op : '') +
+              (r.section ? '  —  ' + r.section : ''),
+            colSpan: 5,
+            styles: { fillColor: [226, 232, 240], textColor: [30, 41, 59], fontStyle: 'bold' }
+          }]);
+          rowFields.push(null);
+        }
+        body.push([r.field, fmt(r.actual), fmt(r.proposed), fmt(r.delta),
+          PRF.exportXlsx.STATUS_FR[r.status] || r.status]);
+        rowFields.push(r.field);
+      });
+
       doc.autoTable({
         startY: 28,
         margin: { left: MARGIN, right: MARGIN },
-        head: [['Section', 'OP', 'Libellé', 'Champ', 'ACTUEL', 'PROPOSER', 'DELTA', 'Statut']],
-        body: rows.map(function (r) {
-          return [r.section || '', r.op || '', r.label || '', r.field,
-            fmt(r.actual), fmt(r.proposed), fmt(r.delta),
-            PRF.exportXlsx.STATUS_FR[r.status] || r.status];
-        }),
+        head: [['Champ', 'ACTUEL', 'PROPOSER', 'DELTA', 'Statut']],
+        body: body,
         styles: { fontSize: 8, cellPadding: 1.4, overflow: 'ellipsize' },
         headStyles: { fillColor: [37, 99, 235] },
         columnStyles: {
-          4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }
+          1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }
         },
         didParseCell: function (data) {
-          colorizeDelta(data, 6, function (i) { return detailFields[i]; });
+          colorizeDelta(data, 3, function (i) { return rowFields[i]; });
         }
       });
     });

@@ -49,6 +49,7 @@ PRF.comparisonTable = (function () {
   let searchText = '';
   let level = 'op';                  // 'op' | 'section' | 'global'
   let showDeleted = false;
+  let grouped = true;                // vue groupée par article (défaut)
   let visibleCols = new Set(COLUMNS.map(function (c) { return c.key; }));
   let editing = null;                // {row, key, node} édition en cours
 
@@ -105,6 +106,13 @@ PRF.comparisonTable = (function () {
       rebuild(false);
     });
 
+    els.grouped = document.getElementById('chk-grouped');
+    els.grouped.addEventListener('change', function () {
+      grouped = els.grouped.checked;
+      renderHeader(); // les colonnes visibles changent entre vue groupée et vue à plat
+      rebuild(true);
+    });
+
     els.undo.addEventListener('click', function () { PRF.history.undo(); });
     els.redo.addEventListener('click', function () { PRF.history.redo(); });
 
@@ -140,10 +148,12 @@ PRF.comparisonTable = (function () {
     searchText = '';
     level = 'op';
     showDeleted = false;
+    grouped = true;
     if (els) {
       els.search.value = '';
       els.level.value = 'op';
       els.showDeleted.checked = false;
+      if (els.grouped) els.grouped.checked = true;
     }
   }
 
@@ -194,10 +204,57 @@ PRF.comparisonTable = (function () {
     // 4. Tri multi-colonnes + ordre naturel en critère final
     sortRows(viewRows);
 
+    // 5. Vue groupée par article : une ligne-titre (nom de l'article)
+    //    sépare chaque groupe, suivie d'une ligne par champ comparé.
+    if (grouped) viewRows = groupByArticle(viewRows);
+
     scroller.setCount(viewRows.length, !!resetScroll);
     renderStats(detail.length);
     renderChips();
     updateHistoryButtons();
+  }
+
+  /** Clé d'article selon le niveau de lecture courant. */
+  function groupKeyOf(r) {
+    if (level === 'global') return r.strrId;
+    if (level === 'section') return r.strrId + '¦' + (r.section || '');
+    return r.strrId + '¦' + (r.section || '') + '¦' + (r.op || '') + '¦' + r.label;
+  }
+
+  /** Ligne-titre de groupe pour la ligne de données fournie. */
+  function makeGroupHeader(r) {
+    let title, sub;
+    if (level === 'global') {
+      title = r.strrId; sub = 'Total référentiel';
+    } else if (level === 'section') {
+      title = r.section || 'Hors section'; sub = r.strrId;
+    } else {
+      // Le code OP n'est ajouté que s'il n'est pas déjà dans le titre
+      const hasOp = r.op && r.label.toUpperCase().indexOf(r.op.toUpperCase()) >= 0;
+      title = r.label + (r.op && !hasOp ? ' · ' + r.op : '');
+      sub = r.strrId + (r.section ? ' › ' + r.section : '');
+    }
+    return { ghead: true, title: title, sub: sub, count: 0 };
+  }
+
+  /**
+   * Insère une ligne-titre à chaque changement d'article (les lignes
+   * arrivent déjà triées : les articles sont contigus).
+   */
+  function groupByArticle(rows) {
+    const out = [];
+    let lastKey = null, head = null;
+    for (let i = 0; i < rows.length; i++) {
+      const key = groupKeyOf(rows[i]);
+      if (key !== lastKey) {
+        head = makeGroupHeader(rows[i]);
+        out.push(head);
+        lastKey = key;
+      }
+      head.count++;
+      out.push(rows[i]);
+    }
+    return out;
   }
 
   /** Comparaison de deux valeurs de cellule (nulls en fin de liste). */
@@ -218,12 +275,13 @@ PRF.comparisonTable = (function () {
         const d = cmpVal(spec[i].get(x), spec[i].get(y)) * spec[i].dir;
         if (d !== 0) return d;
       }
-      // Ordre naturel : STRR, section, ordre d'origine, champ
+      // Ordre naturel : STRR puis ordre d'apparition dans le fichier
+      // (l'ordre encode déjà la succession des sections), puis champ
       let d = cmpVal(x.strrId, y.strrId);
       if (d !== 0) return d;
-      d = cmpVal(x.section, y.section);
-      if (d !== 0) return d;
       d = (x.order || 0) - (y.order || 0);
+      if (d !== 0) return d;
+      d = cmpVal(x.section, y.section);
       if (d !== 0) return d;
       return cmpVal(x.field, y.field);
     });
@@ -237,8 +295,14 @@ PRF.comparisonTable = (function () {
     rebuild(true);
   }
 
+  /** Colonnes contextuelles au niveau ligne (masquées en vue groupée). */
+  const GROUP_HIDDEN = { strr: true, section: true, op: true, label: true };
+
   function activeCols() {
-    return COLUMNS.filter(function (c) { return visibleCols.has(c.key); });
+    return COLUMNS.filter(function (c) {
+      if (grouped && GROUP_HIDDEN[c.key]) return false; // info portée par la ligne-titre
+      return visibleCols.has(c.key);
+    });
   }
 
   function renderHeader() {
@@ -318,6 +382,17 @@ PRF.comparisonTable = (function () {
     if (!r) { node.innerHTML = ''; return; }
     const esc = PRF.ui.escapeHtml;
     const fmt = PRF.ui.formatNumber;
+
+    // Ligne-titre d'article (vue groupée) : pleine largeur
+    if (r.ghead) {
+      node.innerHTML = '<div class="ct-cell ghead-cell">' +
+        '<span class="ghead-title">' + esc(r.title) + '</span>' +
+        (r.sub ? '<span class="ghead-sub">' + esc(r.sub) + '</span>' : '') +
+        '<span class="ghead-count">' + r.count + ' champ(s)</span></div>';
+      node.dataset.idx = idx;
+      node.className = 'ct-row ghead';
+      return;
+    }
     const cols = activeCols();
     let html = '';
 
@@ -369,11 +444,16 @@ PRF.comparisonTable = (function () {
 
   function renderStats(totalDetail) {
     const counts = { added: 0, removed: 0, modified: 0, unchanged: 0 };
+    let articles = 0, dataRows = 0;
     for (let i = 0; i < viewRows.length; i++) {
-      if (counts[viewRows[i].status] !== undefined) counts[viewRows[i].status]++;
+      const r = viewRows[i];
+      if (r.ghead) { articles++; continue; }
+      dataRows++;
+      if (counts[r.status] !== undefined) counts[r.status]++;
     }
     els.stats.textContent =
-      viewRows.length + ' ligne(s) affichée(s) sur ' + totalDetail + ' — ' +
+      (grouped ? articles + ' article(s) · ' : '') +
+      dataRows + ' ligne(s) affichée(s) sur ' + totalDetail + ' — ' +
       '➕ ' + counts.added + ' ajout(s), ❌ ' + counts.removed + ' suppression(s), ' +
       '✎ ' + counts.modified + ' modifié(s), = ' + counts.unchanged + ' inchangé(s)';
   }
@@ -417,7 +497,7 @@ PRF.comparisonTable = (function () {
 
   function onBodyClick(e) {
     const hit = rowFromEvent(e);
-    if (!hit || !hit.row || hit.row.agg) return;
+    if (!hit || !hit.row || hit.row.agg || hit.row.ghead) return;
     const act = e.target.dataset.act;
     if (!act) return;
     const row = hit.row;
@@ -437,7 +517,7 @@ PRF.comparisonTable = (function () {
     const col = COLUMNS.find(function (c) { return c.key === colKey; });
     if (!col || !col.editable) return;
     const row = hit.row;
-    if (row.agg || row.locked || row.deleted) return; // lock individuel (§8.4)
+    if (row.agg || row.ghead || row.locked || row.deleted) return; // lock individuel (§8.4)
     startEdit(row, colKey, cell);
   }
 
@@ -681,7 +761,7 @@ PRF.comparisonTable = (function () {
       if (ok) out.push(r);
     }
     sortRows(out); // structure fidèle à l'UI : même tri (§10.1)
-    return { detailRows: out, visibleColumns: new Set(visibleCols), level: level };
+    return { detailRows: out, visibleColumns: new Set(visibleCols), level: level, grouped: grouped };
   }
 
   return { init, getExportView, rebuild };

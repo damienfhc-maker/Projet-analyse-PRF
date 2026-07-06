@@ -25,7 +25,8 @@
 .strr-chip.on { border-color: var(--green); background: var(--green-bg); }
 .strr-chip.off { opacity: .55; text-decoration: line-through; }
 
-.table-stats { color: var(--text-dim); font-size: 12px; margin-top: 6px; }
+.table-stats-row { display: flex; align-items: center; flex-wrap: wrap; margin-top: 6px; gap: 6px; }
+.table-stats { color: var(--text-dim); font-size: 12px; }
 
 /* ---------- Grille ---------- */
 .comparison-table {
@@ -106,6 +107,42 @@
 .delta-good { background: var(--green-bg); color: var(--green); font-weight: 600; }
 .delta-bad { background: var(--red-bg); color: var(--red); font-weight: 600; }
 .delta-zero { color: var(--text-dim); }
+
+/* Lignes-titres d'article (vue groupée) */
+.ct-row.ghead {
+  background: #eef2ff;
+  border-bottom: 1px solid #c7d2fe;
+  border-top: 1px solid #c7d2fe;
+}
+.ct-row.ghead:hover { background: #e0e7ff; }
+.ghead-cell {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  overflow: hidden;
+}
+.ghead-title { font-weight: 700; color: #3730a3; white-space: nowrap; }
+.ghead-sub {
+  color: #6366f1; font-size: 11px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.ghead-count {
+  margin-left: auto; font-size: 10px; font-weight: 600; color: #6366f1;
+  background: #fff; border: 1px solid #c7d2fe; border-radius: 999px; padding: 1px 8px;
+  white-space: nowrap;
+}
+
+/* Légende du color coding */
+.table-legend {
+  display: inline-flex; gap: 14px; align-items: center;
+  font-size: 11.5px; color: var(--text-dim); margin-left: 10px;
+}
+.table-legend .lg { display: inline-flex; align-items: center; gap: 4px; }
+.table-legend .sw { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.sw-good { background: var(--green-bg); border: 1px solid var(--green); }
+.sw-bad { background: var(--red-bg); border: 1px solid var(--red); }
 
 /* Statuts de ligne */
 .st-badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px; }

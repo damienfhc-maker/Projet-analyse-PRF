@@ -24,10 +24,18 @@ Plan de développement : [`PLAN_DE_DEVELOPPEMENT.md`](./PLAN_DE_DEVELOPPEMENT.md
    Les identifiants acceptent tout préfixe alphabétique : `STRR-00339`,
    `ABC-00042`, `PROD 00007`…
    Les colonnes et lignes `% Rubrique` / `% Total` sont supprimées dès le parsing.
+   La structure est analysée par **contenu** : les colonnes texte de gauche
+   (ex. colonnes 1 à 7) forment la zone de titres — cellules fusionnées et
+   hiérarchie par profondeur de colonne comprises — et les colonnes
+   majoritairement numériques (ex. colonnes 8 à 10) sont les valeurs comparées.
 2. **Sélection des champs** — colonnes détectées dynamiquement, groupées
    (Coûts / Marges / Autres), profils sauvegardables (« Analyse coût »…),
    prévisualisation live, sens d'amélioration réglable par champ.
-3. **Comparaison** — tableau virtualisé (fluide à 100 000+ lignes) :
+3. **Comparaison** — tableau virtualisé (fluide à 100 000+ lignes),
+   **groupé par article** par défaut : une ligne-titre porte le nom de
+   l'article, suivie d'une ligne par champ (Champ | ACTUEL | PROPOSER |
+   DELTA | Statut) ; une vue à plat triable colonne par colonne reste
+   disponible d'un clic. Autres fonctionnalités :
    - `DELTA = PROPOSER − ACTUEL`, color coding vert (amélioration) / rouge (dégradation) ;
    - niveaux OP / Section / STRR global ;
    - tri multi-colonnes (Maj+clic), filtres par colonne, recherche globale indexée ;
@@ -35,8 +43,10 @@ Plan de développement : [`PLAN_DE_DEVELOPPEMENT.md`](./PLAN_DE_DEVELOPPEMENT.md
    - suppression logique (ligne, section, STRR) et case « inclure dans export » ;
    - inclusion/exclusion par STRR (multi-comparaisons isolées).
 4. **Exports** — Excel multi-feuilles (synthèse + détail par STRR) et rapport
-   PDF paginé (couverture, résumé, détail). L'export respecte strictement les
-   suppressions, exclusions et champs décochés.
+   PDF paginé (couverture, résumé, détail), tous deux **groupés par article** :
+   ligne-titre fusionnée au nom de l'article, puis une ligne par champ
+   (A = champ, B = ACTUEL, C = PROPOSER, D = DELTA). L'export respecte
+   strictement les suppressions, exclusions et champs décochés.
 
 Les sessions sont autosauvegardées en IndexedDB (restauration proposée au
 démarrage) et exportables/importables en JSON via la barre supérieure.

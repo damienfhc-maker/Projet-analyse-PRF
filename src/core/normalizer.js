@@ -98,6 +98,7 @@ PRF.normalizer = (function () {
     if (typeof v === 'boolean') return v;
     const s = String(v).trim();
     if (s === '') return null;
+    if (/^[-–—]+$/.test(s) || /^n\/?a$/i.test(s)) return null; // cellules « vides » usuelles
     if (NUM_RE.test(s)) {
       // « 1 234,56 » → 1234.56 (espaces fines et insécables incluses)
       return parseFloat(s.replace(/[  ]/g, '').replace(',', '.'));
@@ -153,24 +154,39 @@ PRF.normalizer = (function () {
     return name;
   }
 
+  /** Cellule contenant UNIQUEMENT un code OP (« OP10 », « op 20 »…). */
+  const PURE_OP_RE = /^\s*OP[\s_-]*\d{1,4}\s*$/i;
+
   /**
-   * Une colonne contient-elle majoritairement du texte non numérique
-   * dans la zone de données ? (sert à identifier la colonne des
-   * libellés quand son en-tête est vide — cas fréquent).
+   * Statistiques de contenu par colonne sur la zone de données
+   * (échantillon de 500 lignes) : nombres, textes, codes OP purs.
+   * Sert à classer chaque colonne en zone de titres / colonne OP /
+   * colonne de valeurs, sans aucune position figée (data-driven §2.2) —
+   * structure réelle type : colonnes 1 à 7 = titres (cellules
+   * fusionnées, hiérarchie), colonnes suivantes = valeurs à comparer.
    * @param {any[][]} rows
    * @param {number} headerIdx
-   * @param {number} col
+   * @param {number} width
+   * @returns {Array<{num:number, text:number, op:number}>}
    */
-  function isMostlyText(rows, headerIdx, col) {
-    let text = 0, other = 0;
-    const limit = Math.min(rows.length, headerIdx + 1 + 200);
+  function classifyColumns(rows, headerIdx, width) {
+    const stats = [];
+    for (let c = 0; c < width; c++) stats.push({ num: 0, text: 0, op: 0 });
+    const limit = Math.min(rows.length, headerIdx + 1 + 500);
     for (let r = headerIdx + 1; r < limit; r++) {
-      const v = (rows[r] || [])[col];
-      if (isEmpty(v)) continue;
-      if (typeof v === 'string' && !NUM_RE.test(v.trim())) text++;
-      else other++;
+      const row = rows[r] || [];
+      for (let c = 0; c < width; c++) {
+        if (isEmpty(row[c])) continue;
+        const v = coerceValue(row[c]);
+        if (v === null) continue;
+        if (typeof v === 'number') stats[c].num++;
+        else {
+          stats[c].text++;
+          if (PURE_OP_RE.test(String(v))) stats[c].op++;
+        }
+      }
     }
-    return text > 0 && text >= other;
+    return stats;
   }
 
   /**
@@ -205,90 +221,96 @@ PRF.normalizer = (function () {
       return { error: 'aucune ligne d\'en-tête détectée dans les 100 premières lignes' };
     }
 
-    const header = rows[headerIdx] || [];
     const width = dataWidth(rows, headerIdx);
+    const stats = classifyColumns(rows, headerIdx, width);
 
-    // --- Cartographie des colonnes -------------------------------------
-    // labelCol : colonne des libellés / désignations
-    // opCol    : colonne dédiée aux codes OP si elle existe
-    // fieldCols: colonnes de données, HORS exclusions §4.5
-    let labelCol = -1, opCol = -1;
+    /**
+     * Nom d'une colonne : cellule d'en-tête, complétée par les deux
+     * lignes au-dessus (en-têtes multi-lignes / cellules fusionnées).
+     */
+    function headerName(c) {
+      const parts = [];
+      for (let r = Math.max(0, headerIdx - 2); r <= headerIdx; r++) {
+        const v = (rows[r] || [])[c];
+        if (!isEmpty(v) && typeof v !== 'number') parts.push(String(v).trim());
+      }
+      return parts.join(' ').trim();
+    }
+
+    // --- Colonne OP : en-tête explicite, sinon contenu (codes OP purs) --
+    let opCol = -1;
+    for (let c = 0; c < width && opCol < 0; c++) {
+      const name = headerName(c);
+      if (name && /^(op|op[ée]ration|code\s*op)s?\b/i.test(name) && !/travail/i.test(name)) opCol = c;
+    }
+    if (opCol < 0) {
+      for (let c = 0; c < width && opCol < 0; c++) {
+        const s = stats[c];
+        if (s.num === 0 && s.text >= 2 && s.op / s.text >= 0.5) opCol = c;
+      }
+    }
+
+    // --- Colonnes de valeurs : contenu majoritairement numérique --------
+    // Aucune position figée : dans la structure réelle type, ce sont les
+    // colonnes 8, 9 et 10, mais c'est le CONTENU qui décide (§2.2).
     const fieldCols = []; // { index, name }
     const usedNames = new Set();
-    const unnamed = []; // colonnes sans en-tête mais potentiellement porteuses de données
-
-    function addField(index, name) {
+    for (let c = 0; c < width; c++) {
+      if (c === opCol) continue;
+      const s = stats[c];
+      if (s.num === 0 || s.num < s.text) continue; // pas une colonne de valeurs
+      let name = headerName(c);
+      if (name && EXCLUDE_RE.test(name)) continue;  // exclusion §4.5 dès le parsing
+      if (!name) name = 'Colonne ' + excelColName(c);
       let unique = name, k = 2;
       // Dédoublonnage des noms de colonnes identiques (« Coût », « Coût (2) »)
       while (usedNames.has(unique.toLowerCase())) unique = name + ' (' + (k++) + ')';
       usedNames.add(unique.toLowerCase());
-      fieldCols.push({ index: index, name: unique });
+      fieldCols.push({ index: c, name: unique });
+    }
+    if (!fieldCols.length) {
+      return { error: 'aucune colonne de valeurs numériques détectée (en-tête ligne ' + (headerIdx + 1) + ')' };
     }
 
-    // Passe 1 : colonnes titrées. La colonne des libellés est reconnue
-    // par son intitulé, sinon la première colonne titrée fait foi.
-    let firstNamed = -1;
+    // --- Zone de titres : toutes les colonnes texte restantes -----------
+    // Le titre d'une ligne peut se trouver dans n'importe laquelle de ces
+    // colonnes (cellules fusionnées) : sa position — la profondeur —
+    // matérialise la hiérarchie des sections.
+    const valueSet = new Set(fieldCols.map(function (f) { return f.index; }));
+    const labelCols = [];
     for (let c = 0; c < width; c++) {
-      const raw = header[c];
-      if (isEmpty(raw)) { unnamed.push(c); continue; }
-      const name = String(raw).trim();
-      if (EXCLUDE_RE.test(name)) continue;              // exclusion colonne dès parsing
-      if (opCol < 0 && /^(op|op[ée]ration|code\s*op)s?\b/i.test(name) && !/travail/i.test(name)) {
-        opCol = c; continue;
-      }
-      if (labelCol < 0 &&
-        /d[ée]sign|libell|description|rubrique|intitul|d[ée]tail|poste|nom\b/i.test(name)) {
-        labelCol = c; continue;
-      }
-      if (firstNamed < 0) { firstNamed = c; continue; } // candidat libellé par défaut
-      addField(c, name);
+      if (c === opCol || valueSet.has(c)) continue;
+      if (stats[c].text > 0) labelCols.push(c);
     }
-
-    // Passe 2 : colonnes SANS en-tête. Cas fréquents : colonne des
-    // libellés non titrée, ou colonnes de valeurs sans titre.
-    for (let i = 0; i < unnamed.length; i++) {
-      const c = unnamed[i];
-      if (labelCol < 0 && isMostlyText(rows, headerIdx, c)) { labelCol = c; continue; }
-      // Colonne de données anonyme : nommée par sa lettre Excel
-      let hasData = false;
-      const scanLimit = Math.min(rows.length, headerIdx + 1 + 200);
-      for (let r = headerIdx + 1; r < scanLimit; r++) {
-        if (!isEmpty((rows[r] || [])[c])) { hasData = true; break; }
-      }
-      if (hasData) addField(c, 'Colonne ' + excelColName(c));
-    }
-
-    // La première colonne titrée sert de libellé si rien de mieux ;
-    // sinon elle redevient une colonne de données.
-    if (labelCol < 0 && firstNamed >= 0) { labelCol = firstNamed; firstNamed = -1; }
-    if (firstNamed >= 0) {
-      addField(firstNamed, String(header[firstNamed]).trim());
-      fieldCols.sort(function (a, b) { return a.index - b.index; });
-    }
-
-    if (labelCol < 0 && opCol >= 0) { labelCol = opCol; } // feuille pilotée uniquement par OP
-    if (labelCol < 0) {
+    if (!labelCols.length && opCol < 0) {
       return { error: 'aucune colonne de libellés identifiable (en-tête ligne ' + (headerIdx + 1) + ')' };
     }
-    if (fieldCols.length === 0) {
-      return { error: 'aucune colonne de données exploitable (en-tête ligne ' + (headerIdx + 1) + ')' };
-    }
 
-    // --- Parcours des lignes de données --------------------------------
+    // --- Parcours des lignes : hiérarchie par profondeur de titre -------
     const records = [];
-    let currentSection = null;
+    const sectionStack = []; // [{depth, label}] titres actifs, du plus large au plus fin
     let order = 0;
 
     for (let r = headerIdx + 1; r < rows.length; r++) {
       const row = rows[r] || [];
 
-      const rawLabel = row[labelCol];
-      const label = isEmpty(rawLabel) ? null : String(rawLabel).trim();
+      // Titre de la ligne : première cellule texte de la zone de titres
+      let label = null, depth = -1;
+      for (let i = 0; i < labelCols.length; i++) {
+        const v = row[labelCols[i]];
+        if (isEmpty(v)) continue;
+        if (typeof coerceValue(v) === 'number') continue; // les titres sont textuels
+        label = String(v).trim();
+        depth = i;
+        break;
+      }
 
       // Exclusion ligne « % Rubrique » / « % Total » dès le parsing (§4.5)
       if (label && EXCLUDE_RE.test(label)) continue;
 
-      // Valeurs de champs (colonnes exclues déjà hors périmètre)
+      // Code OP : colonne dédiée prioritaire, sinon détection dans le titre
+      const operation = (opCol >= 0 ? normalizeOp(row[opCol]) : null) || normalizeOp(label);
+
       const fields = {};
       let hasFieldValue = false;
       for (let i = 0; i < fieldCols.length; i++) {
@@ -296,19 +318,23 @@ PRF.normalizer = (function () {
         if (v !== null) { fields[fieldCols[i].name] = v; hasFieldValue = true; }
       }
 
-      // Code OP : colonne dédiée prioritaire, sinon détection dans le libellé
-      const operation = (opCol >= 0 ? normalizeOp(row[opCol]) : null) || normalizeOp(label);
-
       if (!label && !hasFieldValue && !operation) continue; // ligne vide
 
-      // Ligne de titre de section : libellé seul, sans valeur ni OP
+      // Ligne de titre pur (sans valeur ni OP) : entre dans la hiérarchie.
+      // Un titre remplace tous les titres actifs de profondeur ≥ la sienne.
       if (label && !hasFieldValue && !operation) {
-        currentSection = label;
+        while (sectionStack.length && sectionStack[sectionStack.length - 1].depth >= depth) {
+          sectionStack.pop();
+        }
+        sectionStack.push({ depth: depth, label: label });
         continue;
       }
 
+      // Ligne de données : rattachée au chemin de titres actif
       records.push({
-        section: currentSection,
+        section: sectionStack.length
+          ? sectionStack.map(function (s) { return s.label; }).join(' › ')
+          : null,
         operation: operation,
         label: label || (operation || 'Ligne ' + (r + 1)),
         order: order++,

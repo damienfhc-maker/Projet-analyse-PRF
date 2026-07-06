@@ -40,8 +40,14 @@ PRF.app = (function () {
     const st = PRF.store.state;
     let hasComplete = false;
     st.datasets.forEach(function (ds) { if (ds.ACTUEL && ds.PROPOSER) hasComplete = true; });
-    document.querySelector('[data-view="fields"]').disabled = !hasComplete;
-    document.querySelector('[data-view="table"]').disabled = st.rows.length === 0;
+    const bDash = document.querySelector('[data-view="dashboard"]');
+    const bFields = document.querySelector('[data-view="fields"]');
+    const bTable = document.querySelector('[data-view="table"]');
+    bFields.disabled = !hasComplete;
+    bTable.disabled = st.rows.length === 0;
+    // Étapes accomplies : coche verte sur le stepper
+    bDash.classList.toggle('done', hasComplete);
+    bFields.classList.toggle('done', st.rows.length > 0);
   }
 
   /** Vérifie la présence des librairies vendorisées (mode dégradé sinon). */

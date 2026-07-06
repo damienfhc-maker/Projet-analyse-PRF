@@ -21,9 +21,9 @@
   <header id="topbar">
     <div class="brand">📊 Comparateur STRR <span class="brand-sub">ACTUEL / PROPOSER</span></div>
     <nav id="main-nav">
-      <button class="nav-btn active" data-view="dashboard">1. Import &amp; fichiers</button>
-      <button class="nav-btn" data-view="fields" disabled>2. Sélection des champs</button>
-      <button class="nav-btn" data-view="table" disabled>3. Comparaison</button>
+      <button class="nav-btn active" data-view="dashboard"><span class="step-n">1</span> Import &amp; fichiers</button>
+      <button class="nav-btn" data-view="fields" disabled><span class="step-n">2</span> Sélection des champs</button>
+      <button class="nav-btn" data-view="table" disabled><span class="step-n">3</span> Comparaison</button>
     </nav>
     <div class="topbar-actions">
       <button id="btn-session-save" class="btn btn-ghost" title="Exporter la session complète au format JSON">💾 Session</button>
@@ -35,6 +35,8 @@
   <main id="view-dashboard" class="view">
     <section class="panel">
       <h2>Import des fichiers Excel</h2>
+      <p class="panel-desc">Déposez les deux versions d'un même référentiel (ACTUEL et PROPOSER) :
+        elles seront appariées automatiquement.</p>
       <div id="dropzone" class="dropzone" tabindex="0">
         <div class="dropzone-inner">
           <div class="dropzone-icon">⬇️</div>
@@ -55,6 +57,8 @@
 
     <section class="panel">
       <h2>Référentiels détectés</h2>
+      <p class="panel-desc">Un référentiel est comparable dès que ses deux versions ACTUEL et PROPOSER
+        sont présentes. Décochez « inclure » pour l'écarter de l'analyse.</p>
       <div id="strr-list" class="strr-list empty">Importez des fichiers pour détecter les référentiels (STRR-00339, ABC-00042…).</div>
       <div class="panel-footer">
         <button id="btn-compare" class="btn btn-primary btn-lg" disabled>Comparer ➜</button>
@@ -107,6 +111,8 @@
           <button id="btn-undo" class="btn btn-ghost" title="Annuler (Ctrl+Z)" disabled>↩ Annuler</button>
           <button id="btn-redo" class="btn btn-ghost" title="Rétablir (Ctrl+Y)" disabled>↪ Rétablir</button>
         </div>
+        <label class="chk" title="Une ligne-titre par article, puis une ligne par champ comparé">
+          <input type="checkbox" id="chk-grouped" checked> Vue groupée par article</label>
         <label class="chk"><input type="checkbox" id="chk-show-deleted"> Afficher les éléments supprimés</label>
         <div class="toolbar-group toolbar-right">
           <div class="dropdown" id="col-toggle-dd">
@@ -118,7 +124,16 @@
         </div>
       </div>
       <div id="strr-context-bar" class="strr-context-bar"></div>
-      <div id="table-stats" class="table-stats"></div>
+      <div class="table-stats-row">
+        <div id="table-stats" class="table-stats"></div>
+        <span class="table-legend">
+          <span class="lg"><span class="sw sw-good"></span> amélioration</span>
+          <span class="lg"><span class="sw sw-bad"></span> dégradation</span>
+          <span class="lg">✎ double-clic : éditer</span>
+          <span class="lg">🔓 verrouiller</span>
+          <span class="lg">🗑 ligne · ⌫ section · ✖ référentiel</span>
+        </span>
+      </div>
     </section>
     <section id="comparison-table" class="comparison-table"></section>
   </main>
