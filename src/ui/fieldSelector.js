@@ -17,6 +17,7 @@ PRF.fieldSelector = (function () {
   const PREVIEW_LIMIT = 50;
   let els = null;
   let filterText = '';
+  let advancedOpen = false; // options avancées repliées par défaut (divulgation progressive)
 
   function init() {
     els = {
@@ -26,6 +27,8 @@ PRF.fieldSelector = (function () {
       all: document.getElementById('btn-fields-all'),
       none: document.getElementById('btn-fields-none'),
       preview: document.getElementById('field-preview'),
+      advancedBtn: document.getElementById('btn-advanced'),
+      advancedPanel: document.getElementById('advanced-panel'),
       profileSelect: document.getElementById('profile-select'),
       profileLoad: document.getElementById('btn-profile-load'),
       profileSave: document.getElementById('btn-profile-save'),
@@ -33,6 +36,18 @@ PRF.fieldSelector = (function () {
       back: document.getElementById('btn-back-dashboard'),
       run: document.getElementById('btn-run-compare')
     };
+
+    // Divulgation progressive : le panneau avancé (profils, tolérance
+    // d'orthographe, sens d'amélioration) ne s'ouvre qu'à la demande —
+    // l'état est retenu pour les utilisateurs qui s'en servent souvent.
+    advancedOpen = PRF.usage.getPref('fields.advanced', false);
+    applyAdvancedVisibility();
+    els.advancedBtn.addEventListener('click', function () {
+      advancedOpen = !advancedOpen;
+      PRF.usage.setPref('fields.advanced', advancedOpen);
+      applyAdvancedVisibility();
+      renderGroups(); // les boutons de sens d'amélioration suivent le mode
+    });
 
     els.filter.addEventListener('input', PRF.ui.debounce(function () {
       filterText = els.filter.value.trim().toLowerCase();
@@ -60,8 +75,9 @@ PRF.fieldSelector = (function () {
       const name = els.profileSelect.value;
       if (!name) return;
       if (PRF.fieldRegistry.loadProfile(name)) {
+        PRF.usage.record('profile:' + name); // le profil favori remonte en tête de liste
         render();
-        PRF.ui.toast('Profil « ' + name + ' » chargé.', 'success');
+        PRF.ui.toast('Profil « ' + name + ' » appliqué.', 'success');
       }
     });
     els.profileDelete.addEventListener('click', async function () {
@@ -78,6 +94,12 @@ PRF.fieldSelector = (function () {
 
     PRF.store.on('fields:changed', render);
     render();
+  }
+
+  /** Affiche ou replie le panneau d'options avancées. */
+  function applyAdvancedVisibility() {
+    els.advancedPanel.hidden = !advancedOpen;
+    els.advancedBtn.classList.toggle('btn-primary', advancedOpen);
   }
 
   /** Coche/décoche tous les champs visibles. */
@@ -123,12 +145,18 @@ PRF.fieldSelector = (function () {
         '<span class="grp-count">' + checkedCount + '/' + cols.length + '</span></h3>' +
         cols.map(function (col) {
           const dir = fc.directions[col] || 'lower';
+          // Le réglage du sens d'amélioration est une option avancée :
+          // il n'apparaît que si le panneau avancé est ouvert.
+          const dirBtn = advancedOpen
+            ? '<button class="dir-toggle" data-dir="' + esc(col) + '" ' +
+              'title="Cliquez pour inverser : indique si une hausse ou une baisse de « ' + esc(col) +
+              ' » est une bonne nouvelle (colorée en vert)">' +
+              (dir === 'lower' ? '⬇ = mieux' : '⬆ = mieux') + '</button>'
+            : '';
           return '<div class="field-row">' +
             '<label class="chk"><input type="checkbox" data-field="' + esc(col) + '"' +
               (fc.selected.has(col) ? ' checked' : '') + '> ' + esc(col) + '</label>' +
-            '<button class="dir-toggle" data-dir="' + esc(col) + '" ' +
-              'title="Sens de l\'amélioration pour le color coding (cliquer pour inverser)">' +
-              (dir === 'lower' ? '⬇ = mieux' : '⬆ = mieux') + '</button>' +
+            dirBtn +
             '</div>';
         }).join('') +
         '</div>';
@@ -168,7 +196,8 @@ PRF.fieldSelector = (function () {
   }
 
   function renderProfiles(selectName) {
-    const names = PRF.fieldRegistry.listProfiles();
+    // Personnalisation : les profils les plus utilisés en tête de liste
+    const names = PRF.usage.sortByUsage(PRF.fieldRegistry.listProfiles(), 'profile:');
     els.profileSelect.innerHTML =
       '<option value="">— profil —</option>' +
       names.map(function (n) {
@@ -243,12 +272,20 @@ PRF.fieldSelector = (function () {
     }
     const result = PRF.comparator.compareAll();
     result.missing.forEach(function (m) {
-      PRF.errors.userWarn('STRR ' + m.strrId + ' ignoré : fichier ' + m.missing + ' manquant (mismatch ACTUEL / PROPOSER).');
+      PRF.errors.userWarn('Référentiel ' + m.strrId + ' ignoré : il manque sa version ' + m.missing + '.');
     });
     if (!result.rows.length) {
       PRF.errors.userError('Aucune ligne de comparaison produite. Vérifiez les fichiers importés et les champs sélectionnés.');
       return;
     }
+    // Macro « dernière analyse » : la configuration est mémorisée pour
+    // pouvoir être relancée en un clic depuis le dashboard (⚡)
+    PRF.usage.setLastRun({
+      selected: Array.from(st.fieldConfig.selected),
+      directions: Object.assign({}, st.fieldConfig.directions),
+      fuzzy: st.userConfig.fuzzyMatching
+    });
+    PRF.usage.record('compare');
     PRF.history.clear();
     PRF.store.emit('comparison:done');
     PRF.app.showView('table');

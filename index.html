@@ -26,8 +26,8 @@
       <button class="nav-btn" data-view="table" disabled><span class="step-n">3</span> Comparaison</button>
     </nav>
     <div class="topbar-actions">
-      <button id="btn-session-save" class="btn btn-ghost" title="Exporter la session complète au format JSON">💾 Session</button>
-      <button id="btn-session-load" class="btn btn-ghost" title="Recharger une session JSON exportée">📂 Charger</button>
+      <button id="btn-session-save" class="btn btn-ghost" title="Enregistre tout votre travail dans un fichier, à rouvrir plus tard ou sur un autre poste">💾 Sauvegarder</button>
+      <button id="btn-session-load" class="btn btn-ghost" title="Rouvre une sauvegarde pour reprendre là où vous vous étiez arrêté">📂 Reprendre</button>
     </div>
   </header>
 
@@ -42,8 +42,8 @@
           <div class="dropzone-icon">⬇️</div>
           <p><strong>Glissez-déposez</strong> vos fichiers ici<br>ou</p>
           <button id="btn-browse" class="btn btn-primary">Parcourir…</button>
-          <p class="hint">Formats acceptés : .xls, .xlsx, .xlsm, .csv — sélection multiple possible.<br>
-          Chaque fichier n'est lu qu'une seule fois puis indexé en mémoire.</p>
+          <p class="hint">Formats acceptés : .xls, .xlsx, .xlsm, .csv — vous pouvez déposer plusieurs fichiers à la fois.<br>
+          Vos fichiers restent sur votre ordinateur : rien n'est envoyé sur Internet.</p>
         </div>
         <input type="file" id="file-input" multiple accept=".xls,.xlsx,.xlsm,.csv" hidden>
       </div>
@@ -61,7 +61,10 @@
         sont présentes. Décochez « inclure » pour l'écarter de l'analyse.</p>
       <div id="strr-list" class="strr-list empty">Importez des fichiers pour détecter les référentiels (STRR-00339, ABC-00042…).</div>
       <div class="panel-footer">
-        <button id="btn-compare" class="btn btn-primary btn-lg" disabled>Comparer ➜</button>
+        <button id="btn-quick-run" class="btn btn-lg" hidden
+          title="Relance une comparaison avec les mêmes champs que la dernière fois">⚡ Relancer comme la dernière fois</button>
+        <button id="btn-compare" class="btn btn-primary btn-lg" disabled
+          title="Passe au choix des champs à comparer">Comparer les fichiers ➜</button>
       </div>
     </section>
   </main>
@@ -70,29 +73,39 @@
   <main id="view-fields" class="view" hidden>
     <section class="panel">
       <div class="panel-head-row">
-        <h2>Sélection des champs à comparer</h2>
+        <h2>Choisir les données à comparer</h2>
+        <button id="btn-advanced" class="btn btn-ghost"
+          title="Profils de sélection réutilisables, tolérance d'orthographe, sens d'amélioration par champ">⚙ Options avancées</button>
+      </div>
+      <p class="panel-desc">Cochez les champs à comparer — tout est coché par défaut.
+        Décochez ce qui ne vous intéresse pas, puis lancez la comparaison.</p>
+      <div id="advanced-panel" class="advanced-panel" hidden>
         <div class="profile-bar">
-          <select id="profile-select" title="Profils de comparaison sauvegardés"></select>
-          <button id="btn-profile-load" class="btn btn-ghost" title="Recharger le profil sélectionné">Charger</button>
-          <button id="btn-profile-save" class="btn btn-ghost" title="Sauvegarder la sélection courante comme profil">Enregistrer…</button>
-          <button id="btn-profile-delete" class="btn btn-ghost" title="Supprimer le profil sélectionné">🗑</button>
+          <span class="adv-label" title="Un profil mémorise votre sélection pour la retrouver en un clic">Mes profils :</span>
+          <select id="profile-select" title="Vos sélections enregistrées, la plus utilisée en premier"></select>
+          <button id="btn-profile-load" class="btn btn-ghost" title="Appliquer le profil sélectionné">Appliquer</button>
+          <button id="btn-profile-save" class="btn btn-ghost" title="Mémoriser la sélection actuelle sous un nom">Mémoriser…</button>
+          <button id="btn-profile-delete" class="btn btn-ghost" title="Oublier le profil sélectionné">🗑</button>
         </div>
+        <label class="chk" title="Apparie deux lignes même si leurs libellés diffèrent légèrement (faute de frappe, abréviation)">
+          <input type="checkbox" id="chk-fuzzy"> Tolérer les petites différences d'orthographe entre les deux fichiers</label>
+        <p class="hint">Le bouton « ⬇/⬆ = mieux » à côté de chaque champ indique le sens d'une amélioration
+          (un coût qui baisse est une amélioration ; une marge qui monte aussi).</p>
       </div>
       <div class="field-toolbar">
-        <input type="search" id="field-filter" placeholder="Filtrer les groupes / champs…">
-        <label class="chk"><input type="checkbox" id="chk-fuzzy"> Fuzzy matching des libellés (fallback)</label>
-        <button id="btn-fields-all" class="btn btn-ghost">Tout cocher</button>
-        <button id="btn-fields-none" class="btn btn-ghost">Tout décocher</button>
+        <input type="search" id="field-filter" placeholder="🔍 Trouver un champ…">
+        <button id="btn-fields-all" class="btn btn-ghost" title="Cocher tous les champs visibles">Tout cocher</button>
+        <button id="btn-fields-none" class="btn btn-ghost" title="Décocher tous les champs visibles">Tout décocher</button>
       </div>
       <div id="field-groups" class="field-groups"></div>
     </section>
 
     <section class="panel">
-      <h2>Prévisualisation live <span class="hint-inline">(50 premières lignes de comparaison)</span></h2>
+      <h2>Aperçu du résultat <span class="hint-inline">(mis à jour à chaque changement — 50 premières lignes)</span></h2>
       <div id="field-preview" class="preview-table-wrap"></div>
       <div class="panel-footer">
-        <button id="btn-back-dashboard" class="btn btn-ghost">⟵ Retour</button>
-        <button id="btn-run-compare" class="btn btn-primary btn-lg">Lancer la comparaison ➜</button>
+        <button id="btn-back-dashboard" class="btn btn-ghost" title="Revenir à l'import des fichiers">⟵ Retour</button>
+        <button id="btn-run-compare" class="btn btn-primary btn-lg" title="Calcule les écarts et affiche le tableau de résultats">Lancer la comparaison ➜</button>
       </div>
     </section>
   </main>
@@ -101,37 +114,45 @@
   <main id="view-table" class="view view-table" hidden>
     <section class="table-toolbar">
       <div class="toolbar-row">
-        <input type="search" id="global-search" placeholder="🔍 Recherche globale (index mémoire)…">
-        <select id="level-select" title="Niveau de comparaison">
-          <option value="op">Niveau OP (détail)</option>
-          <option value="section">Niveau Section (agrégé)</option>
-          <option value="global">Niveau STRR (global)</option>
-        </select>
+        <input type="search" id="global-search" placeholder="🔍 Rechercher un article, un champ, une opération…">
         <div class="toolbar-group">
-          <button id="btn-undo" class="btn btn-ghost" title="Annuler (Ctrl+Z)" disabled>↩ Annuler</button>
-          <button id="btn-redo" class="btn btn-ghost" title="Rétablir (Ctrl+Y)" disabled>↪ Rétablir</button>
+          <button id="btn-undo" class="btn btn-ghost" title="Annuler la dernière action (Ctrl+Z)" disabled>↩ Annuler</button>
+          <button id="btn-redo" class="btn btn-ghost" title="Rétablir l'action annulée (Ctrl+Y)" disabled>↪ Rétablir</button>
         </div>
-        <label class="chk" title="Une ligne-titre par article, puis une ligne par champ comparé">
-          <input type="checkbox" id="chk-grouped" checked> Vue groupée par article</label>
-        <label class="chk"><input type="checkbox" id="chk-show-deleted"> Afficher les éléments supprimés</label>
         <div class="toolbar-group toolbar-right">
-          <div class="dropdown" id="col-toggle-dd">
-            <button class="btn btn-ghost" id="btn-col-toggle">☰ Colonnes ▾</button>
-            <div class="dropdown-menu" id="col-toggle-menu" hidden></div>
+          <div class="dropdown" id="display-dd">
+            <button class="btn btn-ghost" id="btn-display" title="Choisir ce qui est affiché, et comment">👁 Affichage ▾</button>
+            <div class="dropdown-menu display-menu" id="display-menu" hidden>
+              <span class="menu-label">Niveau de détail</span>
+              <select id="level-select" title="Voir le détail ligne à ligne, ou des totaux par section / par référentiel">
+                <option value="op">Détail par opération</option>
+                <option value="section">Totaux par section</option>
+                <option value="global">Totaux par référentiel</option>
+              </select>
+              <label class="chk" title="Une ligne-titre par article, puis une ligne par champ comparé">
+                <input type="checkbox" id="chk-grouped" checked> Regrouper par article</label>
+              <label class="chk" title="Les lignes supprimées restent récupérables : affichez-les pour les restaurer">
+                <input type="checkbox" id="chk-show-deleted"> Voir les lignes supprimées</label>
+              <label class="chk" title="Ajoute une zone de recherche sous chaque titre de colonne">
+                <input type="checkbox" id="chk-filters"> Filtres par colonne</label>
+              <span class="menu-label">Colonnes affichées</span>
+              <div id="col-toggle-menu"></div>
+            </div>
           </div>
-          <button id="btn-export-xlsx" class="btn btn-primary" title="Export Excel multi-feuilles">⬇ Excel</button>
-          <button id="btn-export-pdf" class="btn btn-primary" title="Export PDF paginé">⬇ PDF</button>
+          <span id="export-group">
+            <button id="btn-export-xlsx" class="btn btn-primary" title="Télécharger le résultat au format Excel">⬇ Excel</button>
+            <button id="btn-export-pdf" class="btn btn-primary" title="Télécharger un rapport PDF imprimable">⬇ PDF</button>
+          </span>
         </div>
       </div>
       <div id="strr-context-bar" class="strr-context-bar"></div>
       <div class="table-stats-row">
         <div id="table-stats" class="table-stats"></div>
+        <span id="export-suggest" class="export-suggest" hidden></span>
         <span class="table-legend">
-          <span class="lg"><span class="sw sw-good"></span> amélioration</span>
-          <span class="lg"><span class="sw sw-bad"></span> dégradation</span>
-          <span class="lg">✎ double-clic : éditer</span>
-          <span class="lg">🔓 verrouiller</span>
-          <span class="lg">🗑 ligne · ⌫ section · ✖ référentiel</span>
+          <span class="lg" title="Le champ évolue dans le bon sens"><span class="sw sw-good"></span> amélioration</span>
+          <span class="lg" title="Le champ évolue dans le mauvais sens"><span class="sw sw-bad"></span> dégradation</span>
+          <span class="lg" title="Double-cliquez sur une valeur ACTUEL ou PROPOSER pour la corriger">✎ double-clic : corriger une valeur</span>
         </span>
       </div>
     </section>
@@ -152,6 +173,7 @@
   <script src="src/errors/errorHandler.js"></script>
   <script src="src/state/store.js"></script>
   <script src="src/state/history.js"></script>
+  <script src="src/state/usage.js"></script>
   <script src="src/core/parser.js"></script>
   <script src="src/core/normalizer.js"></script>
   <script src="src/core/fieldRegistry.js"></script>

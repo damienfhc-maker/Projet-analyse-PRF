@@ -151,14 +151,23 @@
 .st-modified { background: #dbeafe; color: var(--primary-dark); }
 .st-unchanged { background: #eef1f6; color: var(--text-dim); }
 
-/* Actions de ligne */
+/* Actions de ligne : révélées au survol de la ligne (divulgation
+   progressive — l'écran reste calme, les outils arrivent sous la souris).
+   Les états actifs (verrou posé, case export) restent toujours visibles. */
 .ct-cell.actions { display: flex; gap: 6px; align-items: center; }
 .row-act {
   border: none; background: transparent; cursor: pointer;
-  font-size: 13px; padding: 0 2px; opacity: .6; line-height: 1;
+  font-size: 13px; padding: 0 2px; line-height: 1;
+  opacity: 0; transition: opacity .12s;
 }
-.row-act:hover { opacity: 1; }
-.row-act.active { opacity: 1; }
+.ct-cell.actions input[type=checkbox] { opacity: 0; transition: opacity .12s; }
+.ct-row:hover .row-act, .ct-row:hover .ct-cell.actions input[type=checkbox] { opacity: .65; }
+.ct-row .row-act.active,
+.ct-row .ct-cell.actions input[type=checkbox]:not(:checked) { opacity: .85; }
+.ct-row:hover .row-act:hover { opacity: 1; }
+
+/* Ligne des filtres par colonne : option d'affichage, masquée par défaut */
+.ct-filters[hidden] { display: none; }
 
 /* Largeurs par défaut des colonnes (redéfinies inline par le JS) */
 .w-strr { width: 110px; } .w-section { width: 150px; } .w-op { width: 70px; }

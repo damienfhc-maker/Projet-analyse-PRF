@@ -18,6 +18,10 @@ PRF.dashboard = (function () {
 
   let els = null; // cache des éléments DOM
 
+  /** Feuilles dont l'utilisateur a demandé la modification manuelle
+   *  (divulgation progressive : réglages masqués quand tout est détecté). */
+  const editingSheets = new Set();
+
   function init() {
     els = {
       dropzone: document.getElementById('dropzone'),
@@ -91,7 +95,7 @@ PRF.dashboard = (function () {
     if (imported) {
       PRF.store.rebuildDatasets();          // Map<STRR_ID, Dataset> (§11.2)
       PRF.fieldRegistry.refreshFieldConfig(); // colonnes dynamiques (§7.1)
-      PRF.ui.toast(imported + ' fichier(s) importé(s) et indexé(s) en mémoire.', 'success');
+      PRF.ui.toast(imported + ' fichier(s) importé(s) — prêt pour la comparaison.', 'success');
     }
   }
 
@@ -144,19 +148,34 @@ PRF.dashboard = (function () {
       const sheetsHtml = file.sheets.map(function (sheet, si) {
         const strrOk = !!sheet.strrId;
         const typeOk = !!sheet.type;
-        return '<div class="fmeta">📄 ' + esc(sheet.sheetName) + ' — ' +
-          sheet.records.length + ' ligne(s), ' + sheet.columns.length + ' champ(s) — ' +
-          (strrOk
-            ? '<strong>' + esc(sheet.strrId) + '</strong>'
-            : 'Référentiel : <input type="text" placeholder="ex : STRR-00339, ABC-00042" data-file="' + file.id +
-              '" data-sheet="' + si + '" data-prop="strrId">') + ' ' +
+        const editKey = file.id + '¦' + si;
+        const editing = editingSheets.has(editKey) || !strrOk || !typeOk;
+
+        // Divulgation progressive : quand tout est bien détecté, la
+        // carte reste simple (badges) ; les réglages n'apparaissent que
+        // si la détection a échoué ou sur clic « modifier ».
+        const summary = '<strong>' + esc(sheet.strrId || '?') + '</strong> ' +
+          '<span class="badge badge-ok">' + esc(sheet.type || '?') + '</span> ' +
+          '<button class="linklike" data-editsheet="' + editKey +
+            '" title="Corriger le référentiel ou la version détectés">modifier</button>';
+
+        const controls =
+          'Référentiel : ' +
+          '<input type="text" placeholder="ex : STRR-00339, ABC-00042" value="' + esc(sheet.strrId || '') +
+            '" data-file="' + file.id + '" data-sheet="' + si + '" data-prop="strrId"' +
+            ' title="Identifiant du référentiel : des lettres, un tiret, des chiffres"> ' +
           '<select data-file="' + file.id + '" data-sheet="' + si + '" data-prop="type"' +
+            ' title="Ce fichier est-il la version actuelle ou la version proposée ?"' +
             (typeOk ? '' : ' class="badge-warn"') + '>' +
-            '<option value=""' + (!sheet.type ? ' selected' : '') + '>— type ? —</option>' +
+            '<option value=""' + (!sheet.type ? ' selected' : '') + '>— version ? —</option>' +
             '<option value="ACTUEL"' + (sheet.type === 'ACTUEL' ? ' selected' : '') + '>ACTUEL</option>' +
             '<option value="PROPOSER"' + (sheet.type === 'PROPOSER' ? ' selected' : '') + '>PROPOSER</option>' +
           '</select>' +
           (strrOk && typeOk ? '' : ' <span class="badge badge-warn">à compléter</span>');
+
+        return '<div class="fmeta">📄 ' + esc(sheet.sheetName) + ' — ' +
+          sheet.records.length + ' ligne(s), ' + sheet.columns.length + ' champ(s) — ' +
+          (editing ? controls : summary);
       }).join('');
       return '<div class="file-card">' +
         '<span class="fname">🗂 ' + esc(file.name) + '</span>' +
@@ -176,6 +195,12 @@ PRF.dashboard = (function () {
         reassignSheet(ctl.dataset.file, Number(ctl.dataset.sheet), ctl.dataset.prop, ctl.value);
       });
     });
+    els.fileList.querySelectorAll('[data-editsheet]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        editingSheets.add(btn.dataset.editsheet);
+        renderFiles();
+      });
+    });
   }
 
   function renderStrrList() {
@@ -186,6 +211,7 @@ PRF.dashboard = (function () {
       els.strrList.className = 'strr-list empty';
       els.strrList.textContent = 'Importez des fichiers pour détecter les référentiels (STRR-00339, ABC-00042…).';
       els.compare.disabled = true;
+      document.getElementById('btn-quick-run').hidden = true;
       PRF.app.updateNav();
       return;
     }
@@ -209,7 +235,7 @@ PRF.dashboard = (function () {
       cards.push('<div class="strr-card' + (ds.included ? '' : ' excluded') + '">' +
         '<span class="strr-id">' + esc(strrId) + '</span>' +
         sideBadge('ACTUEL') + sideBadge('PROPOSER') +
-        (complete ? '' : '<span class="badge badge-warn" title="Mismatch ACTUEL / PROPOSER : importez le fichier manquant ou complétez l\'affectation ci-dessus.">⚠ incomplet</span>') +
+        (complete ? '' : '<span class="badge badge-warn" title="Il manque une des deux versions : importez le fichier manquant, ou corrigez la version détectée via « modifier » ci-dessus.">⚠ incomplet</span>') +
         '<span class="spacer"></span>' +
         '<label class="chk"><input type="checkbox" data-include="' + esc(strrId) + '"' +
           (ds.included ? ' checked' : '') + '> inclure</label>' +
@@ -225,6 +251,10 @@ PRF.dashboard = (function () {
     });
 
     els.compare.disabled = completeCount === 0;
+    // Macro ⚡ : proposée dès qu'une analyse précédente est mémorisée
+    // et qu'une paire complète est prête (automatisation locale)
+    const quick = document.getElementById('btn-quick-run');
+    quick.hidden = !(completeCount > 0 && PRF.usage.getLastRun());
     PRF.app.updateNav();
   }
 

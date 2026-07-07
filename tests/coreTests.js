@@ -391,6 +391,26 @@ describe('History — pile undo/redo (§8.4)', function () {
   });
 });
 
+describe('Usage — personnalisation et macros locales', function () {
+
+  it('comptabilise les actions et trie par fréquence d\'usage', function () {
+    PRF.usage.record('test:pdf');
+    PRF.usage.record('test:pdf');
+    PRF.usage.record('test:xlsx');
+    assertTrue(PRF.usage.count('test:pdf') >= 2);
+    const sorted = PRF.usage.sortByUsage(['xlsx', 'pdf'], 'test:');
+    assertEqual(sorted[0], 'pdf', 'le plus utilisé en premier');
+  });
+
+  it('mémorise préférences et dernière analyse', function () {
+    PRF.usage.setPref('test.level', 'section');
+    assertEqual(PRF.usage.getPref('test.level', 'op'), 'section');
+    assertEqual(PRF.usage.getPref('test.inconnu', 'défaut'), 'défaut');
+    PRF.usage.setLastRun({ selected: ['Matière'], directions: {}, fuzzy: false });
+    assertEqual(PRF.usage.getLastRun().selected, ['Matière']);
+  });
+});
+
 describe('Persistence — session JSON aller-retour (§12)', function () {
 
   it('sérialise puis restaure une session à l\'identique', function () {

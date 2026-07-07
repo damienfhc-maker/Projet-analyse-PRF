@@ -131,6 +131,42 @@ PRF.app = (function () {
     }
   }
 
+  /**
+   * Macro « ⚡ Relancer comme la dernière fois » : ré-applique la
+   * dernière sélection de champs mémorisée (PRF.usage) et lance la
+   * comparaison directement, sans repasser par l'écran de sélection.
+   */
+  function quickRun() {
+    const last = PRF.usage.getLastRun();
+    if (!last) return;
+    const st = PRF.store.state;
+    const colSet = new Set(st.columns);
+    const selected = (last.selected || []).filter(function (c) { return colSet.has(c); });
+    if (!selected.length) {
+      PRF.errors.userWarn('Les champs de votre dernière analyse ne sont pas présents dans ces fichiers — choisissez les champs à l\'étape 2.');
+      showView('fields');
+      return;
+    }
+    st.fieldConfig.selected = new Set(selected);
+    Object.keys(last.directions || {}).forEach(function (c) {
+      if (colSet.has(c)) st.fieldConfig.directions[c] = last.directions[c];
+    });
+    st.userConfig.fuzzyMatching = !!last.fuzzy;
+    PRF.store.emit('fields:changed');
+
+    const result = PRF.comparator.compareAll();
+    if (!result.rows.length) {
+      PRF.errors.userError('Aucune ligne de comparaison produite avec les derniers réglages — choisissez les champs à l\'étape 2.');
+      showView('fields');
+      return;
+    }
+    PRF.usage.record('quickRun');
+    PRF.history.clear();
+    PRF.store.emit('comparison:done');
+    showView('table');
+    PRF.ui.toast('Comparaison relancée avec vos derniers réglages (' + selected.length + ' champ(s)).', 'success');
+  }
+
   /** Point d'entrée. */
   function boot() {
     if (!checkVendors()) return;
@@ -146,6 +182,7 @@ PRF.app = (function () {
     PRF.fieldSelector.init();
     PRF.comparisonTable.init();
     PRF.store.on('comparison:done', updateNav);
+    document.getElementById('btn-quick-run').addEventListener('click', quickRun);
     initShortcuts();
     initSession();
     PRF.persistence.initAutosave();
@@ -157,5 +194,5 @@ PRF.app = (function () {
 
   document.addEventListener('DOMContentLoaded', boot);
 
-  return { showView, updateNav };
+  return { showView, updateNav, quickRun };
 })();

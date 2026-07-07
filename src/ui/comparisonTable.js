@@ -50,6 +50,7 @@ PRF.comparisonTable = (function () {
   let level = 'op';                  // 'op' | 'section' | 'global'
   let showDeleted = false;
   let grouped = true;                // vue groupée par article (défaut)
+  let filtersVisible = false;        // filtres par colonne (option avancée)
   let visibleCols = new Set(COLUMNS.map(function (c) { return c.key; }));
   let editing = null;                // {row, key, node} édition en cours
 
@@ -63,10 +64,14 @@ PRF.comparisonTable = (function () {
       showDeleted: document.getElementById('chk-show-deleted'),
       undo: document.getElementById('btn-undo'),
       redo: document.getElementById('btn-redo'),
-      colToggleBtn: document.getElementById('btn-col-toggle'),
+      displayBtn: document.getElementById('btn-display'),
+      displayMenu: document.getElementById('display-menu'),
       colToggleMenu: document.getElementById('col-toggle-menu'),
+      filtersChk: document.getElementById('chk-filters'),
+      exportGroup: document.getElementById('export-group'),
       exportXlsx: document.getElementById('btn-export-xlsx'),
       exportPdf: document.getElementById('btn-export-pdf'),
+      exportSuggest: document.getElementById('export-suggest'),
       chips: document.getElementById('strr-context-bar'),
       stats: document.getElementById('table-stats')
     };
@@ -82,6 +87,11 @@ PRF.comparisonTable = (function () {
     els.filtersInner = els.root.querySelector('.ct-filters-inner');
     els.body = els.root.querySelector('.ct-body');
 
+    // Divulgation progressive : filtres par colonne masqués par défaut,
+    // préférence retenue d'une session à l'autre
+    filtersVisible = PRF.usage.getPref('table.filters', false);
+    applyFiltersVisibility();
+
     scroller = PRF.VirtualScroller(els.body, { rowHeight: ROW_H, renderRow: renderRow });
 
     // Synchronisation du défilement horizontal en-tête / corps
@@ -96,8 +106,10 @@ PRF.comparisonTable = (function () {
       rebuild(true);
     }, 150));
 
+    // Les préférences d'affichage sont retenues d'une session à l'autre
     els.level.addEventListener('change', function () {
       level = els.level.value;
+      PRF.usage.setPref('table.level', level);
       rebuild(true);
     });
 
@@ -109,26 +121,45 @@ PRF.comparisonTable = (function () {
     els.grouped = document.getElementById('chk-grouped');
     els.grouped.addEventListener('change', function () {
       grouped = els.grouped.checked;
+      PRF.usage.setPref('table.grouped', grouped);
       renderHeader(); // les colonnes visibles changent entre vue groupée et vue à plat
       rebuild(true);
+    });
+
+    els.filtersChk.addEventListener('change', function () {
+      filtersVisible = els.filtersChk.checked;
+      PRF.usage.setPref('table.filters', filtersVisible);
+      applyFiltersVisibility();
     });
 
     els.undo.addEventListener('click', function () { PRF.history.undo(); });
     els.redo.addEventListener('click', function () { PRF.history.redo(); });
 
-    els.colToggleBtn.addEventListener('click', function (e) {
+    // Menu « Affichage » : regroupe toutes les options avancées du tableau
+    els.displayBtn.addEventListener('click', function (e) {
       e.stopPropagation();
-      els.colToggleMenu.hidden = !els.colToggleMenu.hidden;
-      if (!els.colToggleMenu.hidden) renderColToggleMenu();
+      els.displayMenu.hidden = !els.displayMenu.hidden;
+      if (!els.displayMenu.hidden) renderColToggleMenu();
     });
     document.addEventListener('click', function (e) {
-      if (!els.colToggleMenu.hidden && !els.colToggleMenu.contains(e.target)) {
-        els.colToggleMenu.hidden = true;
+      if (!els.displayMenu.hidden && !els.displayMenu.contains(e.target) && e.target !== els.displayBtn) {
+        els.displayMenu.hidden = true;
       }
     });
 
-    els.exportXlsx.addEventListener('click', function () { PRF.exportXlsx.run(); });
-    els.exportPdf.addEventListener('click', function () { PRF.exportPdf.run(); });
+    els.exportXlsx.addEventListener('click', function () {
+      PRF.usage.record('export:xlsx');
+      hideExportSuggestion();
+      PRF.exportXlsx.run();
+      orderExportButtons();
+    });
+    els.exportPdf.addEventListener('click', function () {
+      PRF.usage.record('export:pdf');
+      hideExportSuggestion();
+      PRF.exportPdf.run();
+      orderExportButtons();
+    });
+    orderExportButtons();
 
     // --- Interactions du corps (délégation d'événements : un seul
     //     handler quel que soit le nombre de lignes rendues) -----------
@@ -136,25 +167,91 @@ PRF.comparisonTable = (function () {
     els.body.addEventListener('dblclick', onBodyDblClick);
 
     // --- Abonnements store ------------------------------------------------
-    PRF.store.on('comparison:done', function () { resetViewState(); fullRender(); });
+    PRF.store.on('comparison:done', function () {
+      resetViewState();
+      fullRender();
+      maybeSuggestExport();
+    });
     PRF.store.on('rows:changed', function () { rebuild(false); });
     PRF.store.on('history:changed', updateHistoryButtons);
   }
 
-  /** Réinitialise l'état de vue après une nouvelle comparaison. */
+  /**
+   * Réinitialise l'état de vue après une nouvelle comparaison, en
+   * retrouvant les habitudes de l'utilisateur (niveau, regroupement,
+   * colonnes, filtres — personnalisation locale).
+   */
   function resetViewState() {
     sortSpec = [];
     colFilters = {};
     searchText = '';
-    level = 'op';
     showDeleted = false;
-    grouped = true;
+    level = PRF.usage.getPref('table.level', 'op');
+    grouped = PRF.usage.getPref('table.grouped', true);
+    filtersVisible = PRF.usage.getPref('table.filters', false);
+    const savedCols = PRF.usage.getPref('table.columns', null);
+    if (savedCols) visibleCols = new Set(savedCols);
     if (els) {
       els.search.value = '';
-      els.level.value = 'op';
+      els.level.value = level;
       els.showDeleted.checked = false;
-      if (els.grouped) els.grouped.checked = true;
+      if (els.grouped) els.grouped.checked = grouped;
+      els.filtersChk.checked = filtersVisible;
+      applyFiltersVisibility();
     }
+  }
+
+  /** Affiche ou masque la ligne des filtres par colonne. */
+  function applyFiltersVisibility() {
+    if (els && els.filtersBar) els.filtersBar.hidden = !filtersVisible;
+  }
+
+  /**
+   * Place l'export le plus utilisé en premier (personnalisation par
+   * l'usage : l'action favorite est toujours la plus accessible).
+   */
+  function orderExportButtons() {
+    if (PRF.usage.count('export:pdf') > PRF.usage.count('export:xlsx')) {
+      els.exportGroup.insertBefore(els.exportPdf, els.exportXlsx);
+    } else {
+      els.exportGroup.insertBefore(els.exportXlsx, els.exportPdf);
+    }
+  }
+
+  // ---------- Suggestion automatique d'export (raccourci intelligent) ----
+
+  let suggestDismissed = false;
+
+  /**
+   * Si l'utilisateur exporte presque systématiquement après une
+   * comparaison (≥ 2 exports enregistrés), l'export favori lui est
+   * proposé en un clic dès que le tableau s'affiche.
+   */
+  function maybeSuggestExport() {
+    if (suggestDismissed) return;
+    const nx = PRF.usage.count('export:xlsx');
+    const np = PRF.usage.count('export:pdf');
+    if (nx + np < 2) { hideExportSuggestion(); return; }
+    const fav = np > nx ? 'pdf' : 'xlsx';
+    const label = fav === 'pdf' ? 'PDF' : 'Excel';
+    els.exportSuggest.hidden = false;
+    els.exportSuggest.innerHTML =
+      '💡 Vous exportez souvent en ' + label + ' — ' +
+      '<button class="linklike" id="suggest-go">exporter maintenant</button> ' +
+      '<button class="linklike dim" id="suggest-no" title="Ne plus proposer pendant cette session">ignorer</button>';
+    document.getElementById('suggest-go').addEventListener('click', function () {
+      PRF.usage.record('export:' + fav);
+      hideExportSuggestion();
+      (fav === 'pdf' ? PRF.exportPdf : PRF.exportXlsx).run();
+    });
+    document.getElementById('suggest-no').addEventListener('click', function () {
+      suggestDismissed = true;
+      hideExportSuggestion();
+    });
+  }
+
+  function hideExportSuggestion() {
+    if (els && els.exportSuggest) els.exportSuggest.hidden = true;
   }
 
   // ---------- Construction de la vue -------------------------------------------
@@ -365,6 +462,7 @@ PRF.comparisonTable = (function () {
       chk.addEventListener('change', function () {
         if (chk.checked) visibleCols.add(chk.dataset.col);
         else visibleCols.delete(chk.dataset.col);
+        PRF.usage.setPref('table.columns', Array.from(visibleCols)); // retenu pour les prochaines sessions
         renderHeader();
         scroller.refresh();
       });
@@ -701,8 +799,8 @@ PRF.comparisonTable = (function () {
       redo: function () { apply(deleted); },
       undo: revert
     });
-    PRF.ui.toast((deleted ? 'Suppression logique : ' : 'Restauration : ') + what +
-      ' (' + rows.length + ' ligne(s)) — annulable avec ↩.', 'info');
+    PRF.ui.toast((deleted ? 'Supprimé : ' : 'Restauré : ') + what +
+      ' (' + rows.length + ' ligne(s)) — rien n\'est perdu, cliquez ↩ Annuler pour revenir en arrière.', 'info');
   }
 
   /** Confirmation puis suppression d'une section ou d'un STRR complet. */

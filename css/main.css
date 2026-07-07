@@ -312,3 +312,42 @@ input[type="checkbox"] { accent-color: var(--primary); width: 15px; height: 15px
   display: flex; flex-direction: column; gap: 6px; min-width: 180px;
 }
 .dropdown-menu[hidden] { display: none; } /* display:flex ne doit pas écraser hidden */
+.display-menu { min-width: 230px; }
+.menu-label {
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .5px; color: var(--text-dim); margin-top: 4px;
+}
+.display-menu select { padding: 5px 8px; border: 1px solid var(--border-strong); border-radius: 6px; }
+
+/* ---------- Boutons-liens discrets ---------- */
+.linklike {
+  border: none; background: none; padding: 0; cursor: pointer;
+  color: var(--primary); font-size: inherit; text-decoration: underline;
+}
+.linklike:hover { color: var(--primary-dark); }
+.linklike.dim { color: var(--text-dim); }
+
+/* ---------- Panneau d'options avancées (sélection des champs) ---------- */
+.advanced-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #f8fafc;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.advanced-panel[hidden] { display: none; }
+.adv-label { font-size: 12.5px; font-weight: 600; color: var(--text-dim); }
+
+/* ---------- Suggestion contextuelle (raccourci intelligent) ---------- */
+.export-suggest {
+  font-size: 12px;
+  background: var(--amber-bg);
+  color: var(--amber);
+  border: 1px solid #fcd34d;
+  border-radius: 999px;
+  padding: 3px 12px;
+}
+.export-suggest .linklike { font-size: 12px; }
