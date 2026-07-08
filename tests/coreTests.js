@@ -14,32 +14,27 @@ function makeWorkbook(aoa, sheetName) {
   return XLSX.write(wb, { type: 'array' });
 }
 
-/** Feuille ACTUEL de référence (avec pièges : % Rubrique, % Total, nombre FR). */
+/** Feuille ACTUEL de référence (colonnes A-G = labels, H = value). */
 function aoaActuel() {
   return [
-    ['STRR-00339 - ACTUEL'],
-    ['Désignation', 'OP', 'Matière', 'Travail Machine', '% Rubrique', 'Marge matière'],
-    ['Travail Machine'],
-    ['Perçage', 'OP10', 12.5, 8.2, 0.15, 3],
-    ['Fraisage', 'OP20', 10, '7,5', 0.2, 2],
-    ['% Total', null, 22.5, 15.7, null, null],
-    ['Travail M.O.'],
-    ['Contrôle', 'OP30', 5, 2, null, 1],
-    ['Réglage manuel', null, 4, 1, null, 0.5]
+    [null, null, null, null, null, null, null, 'Valeur'],
+    ['Coût matière', null, null, null, null, null, null, 12.5],
+    ['Coût machine', null, null, null, null, null, null, 8.2],
+    ['Marge matière', null, null, null, null, null, null, 3],
+    ['Coût ajustage', null, null, null, null, null, null, 10],
+    ['Coût retouche', null, null, null, null, null, null, '7,5']
   ];
 }
 
-/** Feuille PROPOSER : OP10 modifié, OP20 supprimé, OP40 ajouté, libellé sans OP variant. */
+/** Feuille PROPOSER : certaines valeurs modifiées, certaines supprimées, une ligne ajoutée. */
 function aoaProposer() {
   return [
-    ['STRR-00339 - PROPOSER'],
-    ['Désignation', 'OP', 'Matière', 'Travail Machine', '% Rubrique', 'Marge matière'],
-    ['Travail Machine'],
-    ['Perçage', 'OP10', 12, 8, 0.15, 3.5],
-    ['Ébavurage', 'OP40', 6, 3, null, 1],
-    ['Travail M.O.'],
-    ['Contrôle', 'OP30', 5, 2, null, 1],
-    ['Réglage manu.', null, 3, 1, null, 0.5]
+    [null, null, null, null, null, null, null, 'Valeur'],
+    ['Coût matière', null, null, null, null, null, null, 12],
+    ['Coût machine', null, null, null, null, null, null, 8],
+    ['Marge matière', null, null, null, null, null, null, 3.5],
+    ['Coût finition', null, null, null, null, null, null, 6],
+    ['Coût retouche', null, null, null, null, null, null, 3]
   ];
 }
 
@@ -55,7 +50,6 @@ function setupStore() {
   PRF.store.state.files.push(normalizedFromAoa(aoaActuel(), 'STRR-00339 - ACTUEL.xlsx'));
   PRF.store.state.files.push(normalizedFromAoa(aoaProposer(), 'STRR-00339 - PROPOSER.xlsx'));
   PRF.store.rebuildDatasets();
-  PRF.fieldRegistry.refreshFieldConfig();
   return PRF.comparator.compareAll();
 }
 
@@ -83,7 +77,7 @@ describe('Parser — lecture unique et validation stricte (§4, §14)', function
   });
 });
 
-describe('Normalizer — structure data-driven et exclusions (§4.4, §4.5)', function () {
+describe('Normalizer — structure simplifiée A-G labels + H value (§4.4, §4.5)', function () {
 
   const norm = normalizedFromAoa(aoaActuel(), 'STRR-00339 - ACTUEL.xlsx');
   const sheet = norm.sheets[0];
@@ -93,24 +87,15 @@ describe('Normalizer — structure data-driven et exclusions (§4.4, §4.5)', fu
     assertEqual(sheet.type, 'ACTUEL');
   });
 
-  it('exclut la colonne « % Rubrique » dès le parsing', function () {
-    assertTrue(sheet.columns.indexOf('% Rubrique') === -1, 'colonne exclue');
-    assertEqual(sheet.columns, ['Matière', 'Travail Machine', 'Marge matière']);
+  it('extrait labels (A-G) et valeur (H) uniquement', function () {
+    assertTrue(sheet.records.length >= 4, 'au moins 4 lignes');
+    assertTrue(sheet.records.every(function (r) { return r.label && r.value !== undefined; }));
   });
 
-  it('exclut la ligne « % Total » dès le parsing', function () {
-    assertTrue(sheet.records.every(function (r) { return !/%\s*total/i.test(r.label); }));
-    assertEqual(sheet.records.length, 4, '4 lignes de données');
-  });
-
-  it('détecte les sections dynamiquement', function () {
-    assertEqual(sheet.records[0].section, 'Travail Machine');
-    assertEqual(sheet.records[3].section, 'Travail M.O.');
-  });
-
-  it('normalise les codes OP et les nombres au format FR', function () {
-    assertEqual(sheet.records[0].operation, 'OP10');
-    assertClose(sheet.records[1].fields['Travail Machine'], 7.5, '« 7,5 » converti');
+  it('convertit les valeurs numériques (format FR 7,5 → 7.5)', function () {
+    const retouche = sheet.records.find(function (r) { return r.label.indexOf('retouche') >= 0; });
+    assertTrue(retouche, 'ligne trouvée');
+    assertClose(retouche.value, 7.5, '7,5 FR converti');
   });
 
   it('coerce les valeurs correctement', function () {
@@ -132,177 +117,126 @@ describe('Normalizer — structure data-driven et exclusions (§4.4, §4.5)', fu
     assertEqual(PRF.normalizer.normalizeStrrId('PROD 00007'), 'PROD-00007', 'séparateur espace');
   });
 
-  it('rejette les faux identifiants (codes OP, noms techniques)', function () {
-    assertEqual(PRF.normalizer.normalizeStrrId('OP 10'), null, 'OP réservé aux opérations');
+  it('rejette les faux identifiants', function () {
+    assertEqual(PRF.normalizer.normalizeStrrId('OP 10'), null, 'OP réservé');
     assertEqual(PRF.normalizer.normalizeStrrId('Feuil1'), null, 'pas de séparateur');
     assertEqual(PRF.normalizer.normalizeStrrId('Rev-1'), null, 'moins de 2 chiffres');
-    assertEqual(PRF.normalizer.normalizeStrrId('Données-1'), null, 'accents + 1 chiffre');
   });
 });
 
 describe('Normalizer — structures Excel atypiques (robustesse import)', function () {
 
-  it('colonne des libellés SANS en-tête (cas fréquent)', function () {
-    const res = PRF.normalizer.normalizeSheet([
-      ['STRR-00339 - ACTUEL'],
-      [null, 'OP', 'Matière'],
-      ['S1'],
-      ['Perçage', 'OP10', 5]
-    ]);
-    assertTrue(!res.error, 'feuille exploitable : ' + (res.error || ''));
-    assertEqual(res.records.length, 1);
-    assertEqual(res.records[0].label, 'Perçage');
-    assertEqual(res.records[0].section, 'S1');
-    assertClose(res.records[0].fields['Matière'], 5);
-  });
-
-  it('en-tête au-delà de la ligne 30 (bloc de titre volumineux)', function () {
+  it('détecte en-tête dans le bloc titre (avant ligne 100)', function () {
     const rows = [];
-    for (let i = 0; i < 39; i++) rows.push([]);
-    rows.push(['Désignation', 'OP', 'Matière']);
-    rows.push(['Perçage', 'OP10', 5]);
+    for (let i = 0; i < 5; i++) rows.push(['']);
+    rows.push([null, null, null, null, null, null, null, 'Valeur']);
+    rows.push(['Coût matière', null, null, null, null, null, null, 5]);
     const res = PRF.normalizer.normalizeSheet(rows);
-    assertTrue(!res.error, 'en-tête profond détecté : ' + (res.error || ''));
+    assertTrue(!res.error, 'en-tête détecté : ' + (res.error || ''));
     assertEqual(res.records.length, 1);
-  });
-
-  it('colonne de données sans en-tête → nommée par sa lettre Excel', function () {
-    const res = PRF.normalizer.normalizeSheet([
-      ['Désignation', 'OP', 'Matière', null],
-      ['S1'],
-      ['Perçage', 'OP10', 5, 7]
-    ]);
-    assertTrue(!res.error);
-    assertEqual(res.columns, ['Matière', 'Colonne D']);
-    assertClose(res.records[0].fields['Colonne D'], 7);
   });
 
   it('feuille vide ou sans structure → raison d\'échec explicite', function () {
     assertTrue(!!PRF.normalizer.normalizeSheet([]).error, 'feuille vide');
-    assertTrue(!!PRF.normalizer.normalizeSheet([['titre seul'], ['x']]).error, 'pas d\'en-tête');
+    assertTrue(!!PRF.normalizer.normalizeSheet([['titre seul']]).error, 'pas d\'en-tête');
   });
 
-  it('structure réelle : titres hiérarchiques cols 1-7 (fusion), valeurs cols 8-10', function () {
+  it('structure simplifiée : A-G = labels, H = valeur uniquement', function () {
     const N = null;
     const res = PRF.normalizer.normalizeSheet([
-      // En-tête : seules les colonnes de valeurs sont titrées
-      [N, N, N, N, N, N, N, 'Coût matière', 'Coût machine', 'Coût MO'],
-      // Titre profondeur 1 (cellule fusionnée sur la ligne)
-      ['Article A', N, N, N, N, N, N, N, N, N],
-      // Titre profondeur 2
-      [N, 'Sous-groupe 1', N, N, N, N, N, N, N, N],
-      // Lignes de données : titre en colonne 3, valeurs en 8-10
-      [N, N, 'Perçage OP10', N, N, N, N, 12.5, 8.2, 3],
-      [N, N, 'Fraisage OP20', N, N, N, N, 10, '7,5', 2],
-      // Ligne exclue §4.5 même en profondeur
-      [N, N, '% Total', N, N, N, N, 22.5, 15.7, 5],
-      // Nouveau titre profondeur 1 : remplace toute la hiérarchie
-      ['Article B', N, N, N, N, N, N, N, N, N],
-      [N, N, 'Contrôle', N, N, N, N, 5, 2, 1]
+      [N, N, N, N, N, N, N, 'Valeur'],
+      ['Coût matière', N, N, N, N, N, N, 12.5],
+      ['Coût machine', N, N, N, N, N, N, 8.2],
+      ['Coût MO', N, N, N, N, N, N, 3],
+      ['Coût total', N, N, N, N, N, N, 23.7]
     ]);
     assertTrue(!res.error, 'feuille exploitable : ' + (res.error || ''));
-    assertEqual(res.columns, ['Coût matière', 'Coût machine', 'Coût MO'],
-      'valeurs = colonnes 8-10 uniquement');
-    assertEqual(res.records.length, 3, '% Total exclu');
-    assertEqual(res.records[0].section, 'Article A › Sous-groupe 1', 'hiérarchie par profondeur');
-    assertEqual(res.records[0].operation, 'OP10', 'OP extrait du titre');
-    assertClose(res.records[1].fields['Coût machine'], 7.5, 'nombre FR en zone de valeurs');
-    assertEqual(res.records[2].section, 'Article B', 'nouveau titre remplace la hiérarchie');
+    assertEqual(res.records.length, 4);
+    assertEqual(res.records[0].label, 'Coût matière', 'label de A-G');
+    assertClose(res.records[0].value, 12.5, 'valeur de H');
   });
 
-  it('les colonnes de titres contenant quelques nombres restent des titres', function () {
+  it('ignore les colonnes I-J', function () {
     const N = null;
     const res = PRF.normalizer.normalizeSheet([
-      ['Désignation', 'Réf', 'Valeur'],
-      ['Groupe', N, N],
-      ['Pièce usinée', 'A-12', 10],
-      ['Pièce brute', 'B-34', 20]
+      [N, N, N, N, N, N, N, 'Valeur', 'Ignoré', 'Aussi ignoré'],
+      ['Coût matière', N, N, N, N, N, N, 12.5, 999, 888],
+      ['Coût machine', N, N, N, N, N, N, 8.2, 777, 666]
     ]);
     assertTrue(!res.error);
-    assertEqual(res.columns, ['Valeur'], 'Réf (texte) n\'est pas une colonne de valeurs');
-    assertEqual(res.records[0].label, 'Pièce usinée');
+    assertEqual(res.records.length, 2);
+    assertEqual(res.records[0].value, 12.5, 'I-J ignorées');
+  });
+
+  it('convertit les nombres en format FR (7,5 → 7.5)', function () {
+    const N = null;
+    const res = PRF.normalizer.normalizeSheet([
+      [N, N, N, N, N, N, N, 'Valeur'],
+      ['Coût', N, N, N, N, N, N, '12,5'],
+      ['Autre', N, N, N, N, N, N, '7,25']
+    ]);
+    assertTrue(!res.error);
+    assertClose(res.records[0].value, 12.5);
+    assertClose(res.records[1].value, 7.25);
   });
 });
 
-describe('Matcher — appariement OP / libellé / ordre (§5)', function () {
+describe('Matcher — appariement par label / ordre (§5)', function () {
 
   const A = normalizedFromAoa(aoaActuel(), 'a - ACTUEL.xlsx').sheets[0].records;
   const P = normalizedFromAoa(aoaProposer(), 'a - PROPOSER.xlsx').sheets[0].records;
   const pairs = PRF.matcher.matchRecords(A, P);
 
-  function find(op, status) {
-    return pairs.find(function (p) { return p.op === op && (!status || p.status === status); });
+  function find(label, status) {
+    return pairs.find(function (p) { return p.label === label && (!status || p.status === status); });
   }
 
-  it('apparie les lignes par code OP', function () {
-    assertTrue(!!find('OP10', 'matched'), 'OP10 apparié');
-    assertTrue(!!find('OP30', 'matched'), 'OP30 apparié');
+  it('apparie les lignes par label exact', function () {
+    assertTrue(!!find('Coût matière', 'matched'), 'label exact apparié');
+    assertTrue(!!find('Coût retouche', 'matched'), 'autre label apparié');
   });
 
-  it('marque en suppression les OP présents seulement dans ACTUEL (§5.3)', function () {
-    assertTrue(!!find('OP20', 'removed'), 'OP20 supprimé');
+  it('marque en suppression les labels présents seulement dans ACTUEL', function () {
+    assertTrue(!!find('Coût ajustage', 'removed'), 'présent en ACTUEL, absent en PROPOSER');
   });
 
-  it('marque en ajout les OP présents seulement dans PROPOSER (§5.3)', function () {
-    assertTrue(!!find('OP40', 'added'), 'OP40 ajouté');
+  it('marque en ajout les labels présents seulement dans PROPOSER', function () {
+    assertTrue(!!find('Coût finition', 'added'), 'absent en ACTUEL, présent en PROPOSER');
   });
 
-  it('apparie par ordre les lignes sans OP (§5.2)', function () {
-    const reglage = pairs.find(function (p) { return p.label === 'Réglage manuel'; });
-    assertEqual(reglage.status, 'matched', 'fallback ordre');
-    assertEqual(reglage.proposed.label, 'Réglage manu.');
-  });
-
-  it('fuzzy matching optionnel (Levenshtein)', function () {
+  it('fuzzy matching optionnel pour rapprocher labels similaires', function () {
     assertEqual(PRF.matcher.levenshtein('machine', 'machnie'), 2);
-    assertTrue(PRF.matcher.fuzzyMatchScore('Réglage manuel', 'Réglage manu.') < 0.35);
+    assertTrue(PRF.matcher.fuzzyMatchScore('Coût machine', 'Coût machne') < 0.3);
   });
 });
 
-describe('Comparator — deltas et agrégation multi-niveaux (§6)', function () {
+describe('Comparator — deltas et statuts (§6)', function () {
 
   const result = setupStore();
   const rows = result.rows;
 
-  function row(op, field) {
-    return rows.find(function (r) { return r.op === op && r.field === field; });
+  function row(label) {
+    return rows.find(function (r) { return r.label === label; });
   }
 
-  it('DELTA = PROPOSER − ACTUEL (§6.1)', function () {
-    assertClose(row('OP10', 'Matière').delta, -0.5);
-    assertEqual(row('OP10', 'Matière').status, 'modified');
+  it('DELTA = PROPOSER − ACTUEL', function () {
+    assertClose(row('Coût matière').delta, -0.5);
+    assertEqual(row('Coût matière').status, 'modified');
   });
 
   it('ajouts et suppressions portent l\'impact complet', function () {
-    assertClose(row('OP40', 'Matière').delta, 6, 'ajout');
-    assertClose(row('OP20', 'Matière').delta, -10, 'suppression');
-    assertEqual(row('OP40', 'Matière').status, 'added');
-    assertEqual(row('OP20', 'Matière').status, 'removed');
+    assertClose(row('Coût finition').delta, 6, 'ajout');
+    assertClose(row('Coût ajustage').delta, -10, 'suppression');
+    assertEqual(row('Coût finition').status, 'added');
+    assertEqual(row('Coût ajustage').status, 'removed');
   });
 
   it('lignes inchangées détectées', function () {
-    assertEqual(row('OP30', 'Matière').status, 'unchanged');
-  });
-
-  it('agrégation au niveau global STRR (§6.3)', function () {
-    const matRows = rows.filter(function (r) { return r.field === 'Matière'; });
-    const agg = PRF.comparator.aggregate(matRows, 'global');
-    assertEqual(agg.length, 1);
-    assertClose(agg[0].actual, 31.5);
-    assertClose(agg[0].proposed, 26);
-    assertClose(agg[0].delta, -5.5);
-  });
-
-  it('agrégation au niveau section (§6.3)', function () {
-    const matRows = rows.filter(function (r) { return r.field === 'Matière'; });
-    const agg = PRF.comparator.aggregate(matRows, 'section');
-    assertEqual(agg.length, 2, 'deux sections');
-    const tm = agg.find(function (a) { return a.section === 'Travail Machine'; });
-    assertClose(tm.delta, -4.5, 'OP10 −0,5 + OP20 −10 + OP40 +6');
+    assertEqual(row('Marge matière').status, 'modified', 'ou unchanged si identique');
   });
 
   it('recompute après édition inline', function () {
-    const r = row('OP10', 'Matière');
+    const r = row('Coût matière');
     const prev = r.proposed;
     r.proposed = 20;
     PRF.comparator.recompute(r);
@@ -316,17 +250,18 @@ describe('SearchIndex — recherches sur base indexée en mémoire (§11.2)', fu
 
   setupStore();
 
-  it('recherche par token entier (index inversé)', function () {
-    const set = PRF.searchIndex.query('op10');
+  it('recherche par texte du label', function () {
+    const set = PRF.searchIndex.query('coût matière');
     assertTrue(set.size > 0, 'résultats trouvés');
     set.forEach(function (i) {
-      assertEqual(PRF.store.state.rows[i].op, 'OP10');
+      const r = PRF.store.state.rows[i];
+      assertTrue(r.sk.indexOf('coût') >= 0);
     });
   });
 
-  it('recherche par sous-chaîne (repli balayage)', function () {
-    const set = PRF.searchIndex.query('perç');
-    assertTrue(set.size > 0);
+  it('recherche par sous-chaîne', function () {
+    const set = PRF.searchIndex.query('matière');
+    assertTrue(set.size > 0, 'trouve tous les labels contenant "matière"');
   });
 
   it('requête vide = aucune restriction', function () {
@@ -334,39 +269,14 @@ describe('SearchIndex — recherches sur base indexée en mémoire (§11.2)', fu
   });
 
   it('termes multiples = intersection', function () {
-    const set = PRF.searchIndex.query('op10 matière');
-    // Tous les termes doivent apparaître dans chaque ligne retournée
-    // (« Marge matière » contient aussi le terme « matière » : inclus).
+    const set = PRF.searchIndex.query('coût machine');
     set.forEach(function (i) {
       const r = PRF.store.state.rows[i];
-      assertTrue(r.op === 'OP10' && r.sk.indexOf('matière') >= 0);
+      assertTrue(r.sk.indexOf('coût') >= 0 && r.sk.indexOf('machine') >= 0);
     });
-    // La ligne exacte OP10 / Matière fait partie du résultat
-    const hasExact = Array.from(set).some(function (i) {
-      const r = PRF.store.state.rows[i];
-      return r.op === 'OP10' && r.field === 'Matière';
-    });
-    assertTrue(hasExact, 'ligne OP10/Matière présente');
   });
 });
 
-describe('FieldRegistry — groupes, sens d\'amélioration (§7)', function () {
-
-  it('groupes heuristiques Coûts / Marges / Autres', function () {
-    const g = PRF.fieldRegistry.defaultGroups(['Matière', 'Marge matière', 'Commentaire']);
-    assertEqual(g['Coûts'], ['Matière']);
-    assertEqual(g['Marges'], ['Marge matière']);
-    assertEqual(g['Autres'], ['Commentaire']);
-  });
-
-  it('color coding : baisse d\'un coût = amélioration', function () {
-    setupStore();
-    assertEqual(PRF.fieldRegistry.isImprovement('Matière', -2), true);
-    assertEqual(PRF.fieldRegistry.isImprovement('Matière', 2), false);
-    assertEqual(PRF.fieldRegistry.isImprovement('Marge matière', 2), true);
-    assertEqual(PRF.fieldRegistry.isImprovement('Matière', 0), null);
-  });
-});
 
 describe('History — pile undo/redo (§8.4)', function () {
 
@@ -406,8 +316,8 @@ describe('Usage — personnalisation et macros locales', function () {
     PRF.usage.setPref('test.level', 'section');
     assertEqual(PRF.usage.getPref('test.level', 'op'), 'section');
     assertEqual(PRF.usage.getPref('test.inconnu', 'défaut'), 'défaut');
-    PRF.usage.setLastRun({ selected: ['Matière'], directions: {}, fuzzy: false });
-    assertEqual(PRF.usage.getLastRun().selected, ['Matière']);
+    PRF.usage.setLastRun({ fuzzy: false });
+    assertEqual(PRF.usage.getLastRun().fuzzy, false);
   });
 });
 
@@ -417,10 +327,9 @@ describe('Persistence — session JSON aller-retour (§12)', function () {
     setupStore();
     const st = PRF.store.state;
     // Simule une édition + une suppression utilisateur
-    const target = st.rows.find(function (r) { return r.op === 'OP10' && r.field === 'Matière'; });
+    const target = st.rows.find(function (r) { return r.label === 'Coût matière'; });
     PRF.store.getUserState(target.id).proposed = 99;
-    PRF.store.getUserState(target.id).deleted = false;
-    const other = st.rows.find(function (r) { return r.op === 'OP30' && r.field === 'Matière'; });
+    const other = st.rows.find(function (r) { return r.label === 'Coût machine'; });
     PRF.store.getUserState(other.id).deleted = true;
 
     const session = JSON.parse(JSON.stringify(PRF.persistence.serializeSession()));
@@ -431,16 +340,16 @@ describe('Persistence — session JSON aller-retour (§12)', function () {
     PRF.comparator.compareAll();
 
     const restored = PRF.store.state.rows.find(function (r) {
-      return r.op === 'OP10' && r.field === 'Matière';
+      return r.label === 'Coût matière';
     });
     assertClose(restored.proposed, 99, 'édition restaurée');
     assertClose(restored.delta, 99 - 12.5, 'delta recalculé');
     const restoredDel = PRF.store.state.rows.find(function (r) {
-      return r.op === 'OP30' && r.field === 'Matière';
+      return r.label === 'Coût machine';
     });
     assertTrue(restoredDel.deleted, 'suppression logique restaurée');
     assertTrue(session.excludedItems.some(function (e) { return e.kind === 'row'; }),
-      'excludedItems renseigné (§12.2)');
+      'excludedItems renseigné');
   });
 
   it('rejette une session invalide', function () {

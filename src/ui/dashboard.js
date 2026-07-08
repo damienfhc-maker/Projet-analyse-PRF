@@ -68,6 +68,7 @@ PRF.dashboard = (function () {
         return;
       }
       PRF.usage.record('compare');
+      PRF.usage.setLastRun({ fuzzy: !!PRF.store.state.userConfig.fuzzyMatching });
       PRF.history.clear();
       PRF.store.emit('comparison:done');
       PRF.app.showView('table');
