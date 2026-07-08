@@ -1,19 +1,9 @@
 /* ============================================================
- * matcher.js — Moteur de matching (CDC §5, CORE LOGIC)
+ * matcher.js — Moteur de matching simplifié (label-based only)
  *
- * Niveau 1 (fichiers) : appariement par (STRR ID, type) — réalisé par
- * PRF.store.rebuildDatasets() qui construit Map<STRR_ID, Dataset>.
+ * Apparie les lignes ACTUEL / PROPOSER par label exacte ou fuzzy.
  *
- * Niveau 2 (lignes), par section, dans l'ordre de priorité :
- *   1. code OP (OP10, OP20…)                        [§5.2]
- *   2. libellé normalisé (sans accents ni casse)
- *   3. fuzzy matching optionnel (Levenshtein)        [§5.2 fallback]
- *   4. ordre d'apparition si aucun OP des deux côtés [§5.2]
- *
- * Différences structurelles (§5.3) :
- *   - présent ACTUEL seul   → status 'removed' (❌ suppression)
- *   - présent PROPOSER seul → status 'added'   (➕ ajout)
- *   - apparié               → status 'matched' (comparaison directe)
+ * Résultat : paires avec status 'matched', 'added', ou 'removed'.
  *
  * Module pur (aucun accès DOM).
  * ============================================================ */
@@ -74,122 +64,92 @@ PRF.matcher = (function () {
   const FUZZY_THRESHOLD = 0.35;
 
   /**
-   * Apparie les enregistrements ACTUEL / PROPOSER d'un STRR.
+   * Apparie les enregistrements ACTUEL / PROPOSER d'un STRR par label.
    *
-   * @param {Array} actuelRecs    Enregistrements normalisés ACTUEL
-   * @param {Array} proposerRecs  Enregistrements normalisés PROPOSER
+   * @param {Array} actuelRecs    Enregistrements normalisés ACTUEL {label, value, order}
+   * @param {Array} proposerRecs  Enregistrements normalisés PROPOSER {label, value, order}
    * @param {{fuzzy?:boolean}} [options]
-   * @returns {Array<{section:string|null, op:string|null, label:string,
-   *                  order:number, actual:Object|null, proposed:Object|null,
-   *                  status:'matched'|'added'|'removed'}>}
+   * @returns {Array<{label:string, order:number, actual:Object|null, proposed:Object|null, status:string}>}
    */
   function matchRecords(actuelRecs, proposerRecs, options) {
     const fuzzy = !!(options && options.fuzzy);
-
-    // Regroupement par section normalisée ('' = hors section / global STRR)
-    const bySection = new Map(); // key -> {label, A:[], P:[]}
-    function bucket(rec, side) {
-      const key = normLabel(rec.section);
-      let b = bySection.get(key);
-      if (!b) { b = { label: rec.section, A: [], P: [] }; bySection.set(key, b); }
-      if (!b.label && rec.section) b.label = rec.section;
-      b[side].push(rec);
-    }
-    (actuelRecs || []).forEach(function (r) { bucket(r, 'A'); });
-    (proposerRecs || []).forEach(function (r) { bucket(r, 'P'); });
-
+    const A = actuelRecs || [];
+    const P = proposerRecs || [];
     const pairs = [];
+    const matchedP = new Set();
 
-    bySection.forEach(function (b) {
-      const section = b.label || null;
-      const A = b.A, P = b.P;
-      const matchedP = new Set(); // indices de P déjà appariés
-      const pairOf = new Array(A.length).fill(-1); // index P apparié à chaque A
+    // --- Passe 1 : par libellé exact ou normalisé --
+    const pByLabel = new Map();
+    P.forEach(function (rec, j) {
+      const key = normLabel(rec.label);
+      if (!pByLabel.has(key)) pByLabel.set(key, []);
+      pByLabel.get(key).push(j);
+    });
 
-      // --- Passe 1 : par code OP -------------------------------------
-      const pByOp = new Map();
-      P.forEach(function (rec, j) { if (rec.operation && !pByOp.has(rec.operation)) pByOp.set(rec.operation, j); });
-      A.forEach(function (rec, i) {
-        if (!rec.operation) return;
-        const j = pByOp.get(rec.operation);
-        if (j !== undefined && !matchedP.has(j)) { pairOf[i] = j; matchedP.add(j); }
-      });
-
-      // --- Passe 2 : par libellé normalisé ---------------------------
-      const pByLabel = new Map(); // label -> file d'indices non appariés
-      P.forEach(function (rec, j) {
-        if (matchedP.has(j)) return;
-        const key = normLabel(rec.label);
-        if (!pByLabel.has(key)) pByLabel.set(key, []);
-        pByLabel.get(key).push(j);
-      });
-      A.forEach(function (rec, i) {
-        if (pairOf[i] >= 0) return;
-        const queue = pByLabel.get(normLabel(rec.label));
-        while (queue && queue.length) {
-          const j = queue.shift();
-          if (!matchedP.has(j)) { pairOf[i] = j; matchedP.add(j); break; }
-        }
-      });
-
-      // --- Passe 3 : fuzzy matching optionnel (§5.2 fallback) --------
-      if (fuzzy) {
-        A.forEach(function (rec, i) {
-          if (pairOf[i] >= 0) return;
-          let bestJ = -1, bestScore = FUZZY_THRESHOLD;
-          for (let j = 0; j < P.length; j++) {
-            if (matchedP.has(j)) continue;
-            // Un OP différent des deux côtés = lignes différentes : pas de fuzzy
-            if (rec.operation && P[j].operation && rec.operation !== P[j].operation) continue;
-            const score = fuzzyMatchScore(rec.label, P[j].label);
-            if (score < bestScore) { bestScore = score; bestJ = j; }
-          }
-          if (bestJ >= 0) { pairOf[i] = bestJ; matchedP.add(bestJ); }
-        });
+    A.forEach(function (rec) {
+      const queue = pByLabel.get(normLabel(rec.label));
+      let j = -1;
+      if (queue && queue.length) {
+        j = queue.shift();
+        matchedP.add(j);
       }
 
-      // --- Passe 4 : par ordre, uniquement pour les lignes SANS OP ---
-      // (CDC §5.2 : « ordre si OP absent »)
-      const restA = [], restP = [];
-      A.forEach(function (rec, i) { if (pairOf[i] < 0 && !rec.operation) restA.push(i); });
-      P.forEach(function (rec, j) { if (!matchedP.has(j) && !rec.operation) restP.push(j); });
-      const n = Math.min(restA.length, restP.length);
-      for (let k = 0; k < n; k++) { pairOf[restA[k]] = restP[k]; matchedP.add(restP[k]); }
-
-      // --- Construction des paires ------------------------------------
-      A.forEach(function (rec, i) {
-        const j = pairOf[i];
-        if (j >= 0) {
-          pairs.push({
-            section: section, op: rec.operation || P[j].operation || null,
-            label: rec.label, order: rec.order,
-            actual: rec, proposed: P[j], status: 'matched'
-          });
-        } else {
-          // Présent dans ACTUEL, absent de PROPOSER → suppression (§5.3)
-          pairs.push({
-            section: section, op: rec.operation, label: rec.label, order: rec.order,
-            actual: rec, proposed: null, status: 'removed'
-          });
+      // --- Passe 2 : fuzzy matching optionnel
+      if (j < 0 && fuzzy) {
+        let bestJ = -1, bestScore = FUZZY_THRESHOLD;
+        for (let k = 0; k < P.length; k++) {
+          if (matchedP.has(k)) continue;
+          const score = fuzzyMatchScore(rec.label, P[k].label);
+          if (score < bestScore) { bestScore = score; bestJ = k; }
         }
-      });
-      P.forEach(function (rec, j) {
-        if (matchedP.has(j)) return;
-        // Absent d'ACTUEL, présent dans PROPOSER → ajout (§5.3)
+        if (bestJ >= 0) { j = bestJ; matchedP.add(bestJ); }
+      }
+
+      // --- Passe 3 : par ordre (fallback)
+      if (j < 0) {
+        for (let k = 0; k < P.length; k++) {
+          if (matchedP.has(k)) continue;
+          j = k;
+          matchedP.add(k);
+          break;
+        }
+      }
+
+      // Construction de la paire
+      if (j >= 0) {
         pairs.push({
-          section: section, op: rec.operation, label: rec.label,
-          order: 100000 + rec.order, // les ajouts s'affichent après les lignes existantes
-          actual: null, proposed: rec, status: 'added'
+          label: rec.label,
+          order: rec.order,
+          actual: rec,
+          proposed: P[j],
+          status: 'matched'
         });
+      } else {
+        // Présent ACTUEL, absent PROPOSER → suppression
+        pairs.push({
+          label: rec.label,
+          order: rec.order,
+          actual: rec,
+          proposed: null,
+          status: 'removed'
+        });
+      }
+    });
+
+    // Lignes ajoutées (PROPOSER sans ACTUEL)
+    P.forEach(function (rec, j) {
+      if (matchedP.has(j)) return;
+      pairs.push({
+        label: rec.label,
+        order: 100000 + rec.order,
+        actual: null,
+        proposed: rec,
+        status: 'added'
       });
     });
 
-    // Ordre stable : section puis ordre d'apparition d'origine
-    pairs.sort(function (x, y) {
-      const sx = normLabel(x.section), sy = normLabel(y.section);
-      if (sx !== sy) return sx < sy ? -1 : 1;
-      return x.order - y.order;
-    });
+    // Tri stable par ordre
+    pairs.sort(function (x, y) { return x.order - y.order; });
 
     return pairs;
   }
