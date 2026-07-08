@@ -154,8 +154,9 @@ PRF.normalizer = (function () {
 
 
   /**
-   * Normalise une feuille brute en enregistrements simples (label + value).
-   * Modèle simplifié : colonnes A-G (0-6) = labels, colonne H (7) = valeur.
+   * Normalise une feuille brute en enregistrements hiérarchiques.
+   * Hiérarchie : colonnes A-G (0-6) = niveaux de profondeur, colonne H (7) = valeur.
+   * Chaque ligne détecte son niveau (première colonne remplie) et son parent.
    * @param {any[][]} rows  Cellules brutes
    * @returns {{records:Array}|{error:string}}
    */
@@ -167,20 +168,25 @@ PRF.normalizer = (function () {
 
     const records = [];
     let order = 0;
+    const hierarchyStack = []; // pile des groupes ouverts à chaque niveau
 
     for (let r = headerIdx + 1; r < rows.length; r++) {
       const row = rows[r] || [];
 
-      // Colonnes A-G (indices 0-6) : labels, concaténés
-      const labelParts = [];
+      // Déterminer le niveau de profondeur (première colonne A-G remplie)
+      let level = 0;
+      let label = null;
       for (let c = 0; c < 7; c++) {
         const v = row[c];
         if (!isEmpty(v)) {
           const coerced = coerceValue(v);
-          if (typeof coerced === 'string') labelParts.push(coerced);
+          if (typeof coerced === 'string') {
+            level = c + 1; // niveau 1-7 (colonne A-G)
+            label = coerced;
+            break;
+          }
         }
       }
-      const label = labelParts.join(' · ').trim();
 
       // Colonne H (indice 7) : la seule valeur à comparer
       const value = coerceValue(row[7]);
@@ -188,10 +194,21 @@ PRF.normalizer = (function () {
       // Ignorer les lignes vides (pas de label ET pas de valeur)
       if (!label && value === null) continue;
 
+      // Construire le chemin hiérarchique (parent path)
+      // Nettoyer la pile : supprimer les niveaux >= au niveau courant
+      while (hierarchyStack.length >= level) {
+        hierarchyStack.pop();
+      }
+      hierarchyStack[level - 1] = label;
+
+      // Créer le record avec propriétés hiérarchiques
       records.push({
         label: label || 'Ligne ' + (r + 1),
         value: value,
-        order: order++
+        level: level,
+        parentPath: hierarchyStack.slice(0, level - 1).join(' › ') || null,
+        order: order++,
+        collapsed: false // pour l'UI
       });
     }
 

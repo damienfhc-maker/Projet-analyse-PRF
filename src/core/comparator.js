@@ -19,8 +19,8 @@ PRF.comparator = (function () {
   /**
    * Identifiant déterministe d'une ligne de comparaison.
    */
-  function rowId(strrId, label, order) {
-    return strrId + '¦' + label + '¦' + order;
+  function rowId(strrId, label, order, level) {
+    return strrId + '¦' + label + '¦' + order + '¦' + level;
   }
 
   /**
@@ -48,11 +48,16 @@ PRF.comparator = (function () {
     else if (delta !== null) status = Math.abs(delta) > 1e-9 ? 'modified' : 'unchanged';
     else status = String(actual) === String(proposed) ? 'unchanged' : 'modified';
 
+    // Niveau hiérarchique (défaut: 1 si absent)
+    const level = (aRec ? aRec.level : pRec.level) || 1;
+
     return {
-      id: rowId(strrId, pair.label, pair.order),
+      id: rowId(strrId, pair.label, pair.order, level),
       strrId: strrId,
       label: pair.label,
       order: pair.order,
+      level: level,
+      parentPath: (aRec ? aRec.parentPath : pRec.parentPath) || null,
       actual: actual,
       proposed: proposed,
       delta: delta,
@@ -60,6 +65,7 @@ PRF.comparator = (function () {
       locked: false,
       included: true,
       deleted: false,
+      collapsed: false,
       sk: (strrId + ' ' + pair.label).toLowerCase()
     };
   }

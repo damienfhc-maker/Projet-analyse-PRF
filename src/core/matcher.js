@@ -64,10 +64,12 @@ PRF.matcher = (function () {
   const FUZZY_THRESHOLD = 0.35;
 
   /**
-   * Apparie les enregistrements ACTUEL / PROPOSER d'un STRR par label.
+   * Apparie les enregistrements ACTUEL / PROPOSER d'un STRR par label ET level.
+   * La hiérarchie est préservée : un parent ne peut matcher qu'avec un autre parent,
+   * un enfant qu'avec un autre enfant au même niveau.
    *
-   * @param {Array} actuelRecs    Enregistrements normalisés ACTUEL {label, value, order}
-   * @param {Array} proposerRecs  Enregistrements normalisés PROPOSER {label, value, order}
+   * @param {Array} actuelRecs    Enregistrements normalisés ACTUEL {label, value, level, order}
+   * @param {Array} proposerRecs  Enregistrements normalisés PROPOSER {label, value, level, order}
    * @param {{fuzzy?:boolean}} [options]
    * @returns {Array<{label:string, order:number, actual:Object|null, proposed:Object|null, status:string}>}
    */
@@ -78,37 +80,41 @@ PRF.matcher = (function () {
     const pairs = [];
     const matchedP = new Set();
 
-    // --- Passe 1 : par libellé exact ou normalisé --
-    const pByLabel = new Map();
+    // --- Passe 1 : par libellé exact ou normalisé (ET level identique) --
+    const pByLabelLevel = new Map();
     P.forEach(function (rec, j) {
-      const key = normLabel(rec.label);
-      if (!pByLabel.has(key)) pByLabel.set(key, []);
-      pByLabel.get(key).push(j);
+      const level = rec.level || 1;
+      const key = normLabel(rec.label) + '¦' + level;
+      if (!pByLabelLevel.has(key)) pByLabelLevel.set(key, []);
+      pByLabelLevel.get(key).push(j);
     });
 
     A.forEach(function (rec) {
-      const queue = pByLabel.get(normLabel(rec.label));
+      const level = rec.level || 1;
+      const queue = pByLabelLevel.get(normLabel(rec.label) + '¦' + level);
       let j = -1;
       if (queue && queue.length) {
         j = queue.shift();
         matchedP.add(j);
       }
 
-      // --- Passe 2 : fuzzy matching optionnel
+      // --- Passe 2 : fuzzy matching optionnel (même niveau)
       if (j < 0 && fuzzy) {
         let bestJ = -1, bestScore = FUZZY_THRESHOLD;
         for (let k = 0; k < P.length; k++) {
           if (matchedP.has(k)) continue;
+          if ((P[k].level || 1) !== level) continue; // même niveau
           const score = fuzzyMatchScore(rec.label, P[k].label);
           if (score < bestScore) { bestScore = score; bestJ = k; }
         }
         if (bestJ >= 0) { j = bestJ; matchedP.add(bestJ); }
       }
 
-      // --- Passe 3 : par ordre (fallback)
+      // --- Passe 3 : par ordre (fallback, même niveau)
       if (j < 0) {
         for (let k = 0; k < P.length; k++) {
           if (matchedP.has(k)) continue;
+          if ((P[k].level || 1) !== level) continue; // même niveau
           j = k;
           matchedP.add(k);
           break;
