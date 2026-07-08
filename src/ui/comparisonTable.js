@@ -25,13 +25,10 @@ PRF.comparisonTable = (function () {
 
   const ROW_H = 30;
 
-  /** Définition des colonnes du tableau (§8.3). */
+  /** Définition des colonnes du tableau (structure hiérarchique). */
   const COLUMNS = [
     { key: 'strr', label: 'STRR', w: 110, get: function (r) { return r.strrId; } },
-    { key: 'section', label: 'Section', w: 160, get: function (r) { return r.section || ''; } },
-    { key: 'op', label: 'OP', w: 70, get: function (r) { return r.op || ''; } },
-    { key: 'label', label: 'Libellé', w: 190, get: function (r) { return r.label || ''; } },
-    { key: 'field', label: 'Champ', w: 160, get: function (r) { return r.field; } },
+    { key: 'label', label: 'Indication', w: 250, get: function (r) { return r.label || ''; } },
     { key: 'actual', label: 'ACTUEL', w: 110, num: true, editable: true, get: function (r) { return r.actual; } },
     { key: 'proposed', label: 'PROPOSER', w: 110, num: true, editable: true, get: function (r) { return r.proposed; } },
     { key: 'delta', label: 'DELTA', w: 110, num: true, get: function (r) { return r.delta; } },
@@ -289,26 +286,74 @@ PRF.comparisonTable = (function () {
       if (ok) filtered.push(r);
     }
 
-    // 3. Niveau de lecture (§6.3) : agrégation Section / Global
-    if (level === 'op') {
-      viewRows = filtered;
-    } else {
-      // Les lignes supprimées ne participent jamais aux totaux
-      const base = filtered.filter(function (r) { return !r.deleted; });
-      viewRows = PRF.comparator.aggregate(base, level);
-    }
+    // 3. Modèle hiérarchique : pré-calculer hasChildren et filtered state
+    buildHierarchicalView(filtered);
 
     // 4. Tri multi-colonnes + ordre naturel en critère final
     sortRows(viewRows);
 
-    // 5. Vue groupée par article : une ligne-titre (nom de l'article)
-    //    sépare chaque groupe, suivie d'une ligne par champ comparé.
-    if (grouped) viewRows = groupByArticle(viewRows);
+    // 5. Appliquer les états collapsed pour filtrer la vue
+    applyCollapsedFilter();
 
     scroller.setCount(viewRows.length, !!resetScroll);
     renderStats(detail.length);
     renderChips();
     updateHistoryButtons();
+  }
+
+  /**
+   * Construit la vue hiérarchique : marque les rows avec hasChildren
+   * en fonction du niveau et du parentPath.
+   */
+  function buildHierarchicalView(rows) {
+    viewRows = rows;
+
+    // Marquer les rows qui ont des enfants
+    const childrenByParent = new Map();
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const parentPath = r.parentPath;
+      if (parentPath) {
+        if (!childrenByParent.has(parentPath)) {
+          childrenByParent.set(parentPath, []);
+        }
+        childrenByParent.get(parentPath).push(i);
+      }
+    }
+
+    // Ajouter hasChildren et collapsed properties
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const label = r.label;
+      r.hasChildren = childrenByParent.has(label) && childrenByParent.get(label).length > 0;
+      if (!('collapsed' in r)) r.collapsed = false;
+    }
+  }
+
+  /**
+   * Filtre viewRows en cachant les enfants des groupes collapsed.
+   */
+  function applyCollapsedFilter() {
+    const out = [];
+    const collapsedParents = new Set();
+
+    for (let i = 0; i < viewRows.length; i++) {
+      const r = viewRows[i];
+
+      // Vérifier si ce row est un enfant d'un groupe collapsed
+      if (r.parentPath && collapsedParents.has(r.parentPath)) {
+        continue; // skip cet enfant
+      }
+
+      out.push(r);
+
+      // Si ce row est un groupe collapsed, ajouter à l'ensemble
+      if (r.hasChildren && r.collapsed) {
+        collapsedParents.add(r.label);
+      }
+    }
+
+    viewRows = out;
   }
 
   /** Clé d'article selon le niveau de lecture courant. */
@@ -472,6 +517,7 @@ PRF.comparisonTable = (function () {
   /**
    * Rendu d'une ligne virtuelle (appelé par le scroller, doit rester
    * très rapide : construction d'une chaîne HTML puis innerHTML).
+   * Gère l'indentation hiérarchique et les boutons expand/collapse.
    * @param {HTMLElement} node
    * @param {number} idx  index dans viewRows
    */
@@ -481,65 +527,83 @@ PRF.comparisonTable = (function () {
     const esc = PRF.ui.escapeHtml;
     const fmt = PRF.ui.formatNumber;
 
-    // Ligne-titre d'article (vue groupée) : pleine largeur
-    if (r.ghead) {
-      node.innerHTML = '<div class="ct-cell ghead-cell">' +
-        '<span class="ghead-title">' + esc(r.title) + '</span>' +
-        (r.sub ? '<span class="ghead-sub">' + esc(r.sub) + '</span>' : '') +
-        '<span class="ghead-count">' + r.count + ' champ(s)</span></div>';
-      node.dataset.idx = idx;
-      node.className = 'ct-row ghead';
-      return;
-    }
     const cols = activeCols();
     let html = '';
 
     for (let i = 0; i < cols.length; i++) {
       const c = cols[i];
       if (c.key === 'actions') {
-        html += r.agg ? '<div class="ct-cell actions" style="width:' + c.w + 'px"></div>'
-          : '<div class="ct-cell actions" style="width:' + c.w + 'px">' +
-            '<button class="row-act' + (r.locked ? ' active' : '') + '" data-act="lock" title="' +
-              (r.locked ? 'Déverrouiller la comparaison' : 'Verrouiller la comparaison (bloque l\'édition)') + '">' +
-              (r.locked ? '🔒' : '🔓') + '</button>' +
-            '<input type="checkbox" data-act="include" title="Inclure dans l\'export"' +
-              (r.included ? ' checked' : '') + '>' +
-            '<button class="row-act" data-act="del" title="' +
-              (r.deleted ? 'Restaurer la ligne' : 'Supprimer la ligne (logique)') + '">' +
-              (r.deleted ? '↺' : '🗑') + '</button>' +
-            '<button class="row-act" data-act="delsec" title="Supprimer la section complète">⌫</button>' +
-            '<button class="row-act" data-act="delstrr" title="Supprimer le STRR complet">✖</button>' +
-            '</div>';
+        html += '<div class="ct-cell actions" style="width:' + c.w + 'px">' +
+          '<button class="row-act' + (r.locked ? ' active' : '') + '" data-act="lock" title="' +
+            (r.locked ? 'Déverrouiller la comparaison' : 'Verrouiller la comparaison (bloque l\'édition)') + '">' +
+            (r.locked ? '🔒' : '🔓') + '</button>' +
+          '<input type="checkbox" data-act="include" title="Inclure dans l\'export"' +
+            (r.included ? ' checked' : '') + '>' +
+          '<button class="row-act" data-act="del" title="' +
+            (r.deleted ? 'Restaurer la ligne' : 'Supprimer la ligne (logique)') + '">' +
+            (r.deleted ? '↺' : '🗑') + '</button>' +
+          '<button class="row-act" data-act="delstrr" title="Supprimer le STRR complet">✖</button>' +
+          '</div>';
         continue;
       }
-      const v = c.get(r);
+
       let cls = 'ct-cell' + (c.num ? ' num' : '');
       let content;
-      if (c.key === 'delta') {
-        // Heuristique simple : delta positif = amélioration (vert), négatif = détérioration (rouge)
-        if (typeof v === 'number' && Math.abs(v) > 1e-9) {
-          cls += v > 0 ? ' delta-good' : ' delta-bad';
-        } else {
-          cls += ' delta-zero';
-        }
-        content = typeof v === 'number' && v > 0 ? '+' + fmt(v) : esc(fmt(v));
-      } else if (c.key === 'status') {
-        const lbl = PRF.exportXlsx.STATUS_FR[v] || v;
-        content = '<span class="st-badge st-' + esc(v) + '">' + esc(lbl) + '</span>';
-      } else if (c.num) {
-        content = esc(fmt(v));
+
+      // Colonne label : ajouter indentation et bouton expand/collapse
+      if (c.key === 'label') {
+        const indent = (r.level || 1) - 1;
+        const paddingLeft = indent * 20 + 5;
+        const hasChildren = r.hasChildren;
+        const expandBtn = hasChildren ?
+          '<button class="expand-btn ' + (r.collapsed ? 'collapsed' : '') + '" data-act="expand" title="' +
+            (r.collapsed ? 'Afficher les enfants' : 'Masquer les enfants') + '">' +
+            (r.collapsed ? '▶' : '▼') + '</button>' :
+          '<span class="expand-spacer"></span>';
+
+        content = '<div class="label-container" style="padding-left:' + paddingLeft + 'px">' +
+          expandBtn +
+          '<span class="label-text">' + esc(r.label || '') + '</span>' +
+          '</div>';
+        cls += ' label-cell';
       } else {
-        content = esc(v);
+        const v = c.get(r);
+        if (c.key === 'delta') {
+          // Heuristique simple : delta positif = amélioration (vert), négatif = détérioration (rouge)
+          if (typeof v === 'number' && Math.abs(v) > 1e-9) {
+            cls += v > 0 ? ' delta-good' : ' delta-bad';
+          } else {
+            cls += ' delta-zero';
+          }
+          content = typeof v === 'number' && v > 0 ? '+' + fmt(v) : esc(fmt(v));
+        } else if (c.key === 'status') {
+          const lbl = PRF.exportXlsx.STATUS_FR[v] || v;
+          content = '<span class="st-badge st-' + esc(v) + '">' + esc(lbl) + '</span>';
+        } else if (c.num) {
+          content = esc(fmt(v));
+        } else {
+          content = esc(v);
+        }
       }
-      const editable = c.editable && !r.agg && !r.locked && !r.deleted;
+
+      const editable = c.editable && !r.locked && !r.deleted && c.key !== 'label';
       html += '<div class="' + cls + (editable ? ' editable' : '') + '" data-cell="' + c.key +
         '" style="width:' + c.w + 'px">' + content + '</div>';
     }
 
     node.innerHTML = html;
     node.dataset.idx = idx;
-    node.className = 'ct-row' + (r.deleted ? ' deleted' : '') +
-      (r.locked && !r.agg ? ' locked' : '') + (r.agg ? ' agg' : '');
+
+    // Classes CSS pour le style
+    let rowClass = 'ct-row';
+    if (r.deleted) rowClass += ' deleted';
+    if (r.locked) rowClass += ' locked';
+    if (r.level === 1) rowClass += ' level-1'; // séparateur visuel pour groupe principal
+    if (r.collapsed) rowClass += ' collapsed';
+    if (r.hasChildren) rowClass += ' has-children';
+
+    node.className = rowClass;
+    node.dataset.idx = idx;
   }
 
   function renderStats(totalDetail) {
@@ -597,14 +661,16 @@ PRF.comparisonTable = (function () {
 
   function onBodyClick(e) {
     const hit = rowFromEvent(e);
-    if (!hit || !hit.row || hit.row.agg || hit.row.ghead) return;
+    if (!hit || !hit.row) return;
     const act = e.target.dataset.act;
     if (!act) return;
     const row = hit.row;
-    if (act === 'lock') toggleLock(row);
+    if (act === 'expand') {
+      row.collapsed = !row.collapsed;
+      rebuild(false); // reconstruire la vue avec les collapsed updates
+    } else if (act === 'lock') toggleLock(row);
     else if (act === 'include') toggleInclude(row, e.target.checked);
     else if (act === 'del') deleteRows([row], !row.deleted, 'ligne');
-    else if (act === 'delsec') confirmStructureDelete(row, 'section');
     else if (act === 'delstrr') confirmStructureDelete(row, 'strr');
   }
 

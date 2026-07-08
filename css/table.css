@@ -173,3 +173,63 @@
 .w-strr { width: 110px; } .w-section { width: 150px; } .w-op { width: 70px; }
 .w-label { width: 180px; } .w-field { width: 150px; }
 .w-num { width: 110px; } .w-status { width: 90px; } .w-actions { width: 120px; }
+
+/* ========== Hiérarchie et groupage ========== */
+
+/* Séparateur visuel pour les groupes de niveau 1 (premier niveau hiérarchique) */
+.ct-row.level-1 {
+  background: #f3f4f6;
+  border-top: 2px solid #d1d5db;
+  font-weight: 500;
+}
+
+/* Conteneur du libellé avec indentation basée sur le niveau */
+.label-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.label-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Bouton expand/collapse */
+.expand-btn {
+  flex: 0 0 16px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-dim);
+  transition: color .15s;
+}
+
+.expand-btn:hover {
+  color: var(--text);
+}
+
+.expand-btn.collapsed {
+  opacity: 0.7;
+}
+
+/* Espace pour les lignes sans enfants (pour alignement) */
+.expand-spacer {
+  flex: 0 0 16px;
+  display: inline-block;
+}
+
+/* Lignes avec enfants : style distinctif */
+.ct-row.has-children .label-text {
+  font-weight: 500;
+}
+
+/* Lignes collapsed : légèrement atténuées */
+.ct-row.collapsed {
+  opacity: 0.85;
+}
