@@ -183,7 +183,7 @@ PRF.dashboard = (function () {
           (strrOk && typeOk ? '' : ' <span class="badge badge-warn">à compléter</span>');
 
         return '<div class="fmeta">📄 ' + esc(sheet.sheetName) + ' — ' +
-          sheet.records.length + ' ligne(s), ' + sheet.columns.length + ' champ(s) — ' +
+          sheet.records.length + ' ligne(s) — ' +
           (editing ? controls : summary);
       }).join('');
       return '<div class="file-card">' +
