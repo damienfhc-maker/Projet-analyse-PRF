@@ -115,7 +115,7 @@ PRF.ui = (function () {
 
   // ---------- Formatage ---------------------------------------------------
 
-  const numFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 });
+  const numFmt = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 4 });
 
   /** Formate un nombre au format français (1 234,56). */
   function formatNumber(v) {
