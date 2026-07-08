@@ -1,15 +1,12 @@
 /* ============================================================
- * exportPdf.js — Export PDF (CDC §10.2, §10.3)
+ * exportPdf.js — Export PDF
  *
  * Rapport structuré et imprimable :
  *   - page de couverture (titre, date, fichiers sources, périmètre) ;
- *   - résumé global (agrégats par STRR / champ, colorés) ;
  *   - tableaux détaillés par STRR ;
  *   - pagination automatique avec numéros de page.
  *
  * Généré 100 % localement via jsPDF + autotable vendorisés.
- * Le filtrage strict (§10.3) est hérité de la même vue d'export
- * que l'Excel : suppressions, exclusions et champs décochés absents.
  * ============================================================ */
 "use strict";
 
@@ -47,11 +44,8 @@ PRF.exportPdf = (function () {
 
   /**
    * Applique le color coding vert/rouge à la colonne DELTA d'une table.
-   * @param {Object} data  hook autotable didParseCell
-   * @param {number} deltaColIndex
-   * @param {Function} fieldOfRow  index de ligne → nom de champ
    */
-  function colorizeDelta(data, deltaColIndex, fieldOfRow) {
+  function colorizeDelta(data, deltaColIndex) {
     if (data.section !== 'body' || data.column.index !== deltaColIndex) return;
     const raw = data.cell.raw;
     if (raw === '' || raw === null || raw === undefined) return;
@@ -88,7 +82,6 @@ PRF.exportPdf = (function () {
     const covLines = [
       'Fichiers sources : ' + (st.files.map(function (f) { return f.name; }).join(', ') || '—'),
       'STRR inclus : ' + strrIds.join(', '),
-      'Champs comparés : ' + Array.from(st.fieldConfig.selected).join(', '),
       'Lignes de comparaison exportées : ' + view.detailRows.length
     ];
     doc.setFontSize(10);
@@ -98,31 +91,6 @@ PRF.exportPdf = (function () {
       const wrapped = doc.splitTextToSize(line, pageW - 2 * MARGIN - 20);
       doc.text(wrapped, MARGIN + 10, y);
       y += wrapped.length * 5 + 3;
-    });
-
-    // ---- Résumé global --------------------------------------------------
-    doc.addPage();
-    doc.setFontSize(15);
-    doc.setTextColor(16, 24, 39);
-    doc.text('Résumé global', MARGIN, 18);
-
-    const globals = PRF.comparator.aggregate(view.detailRows, 'global');
-    globals.sort(function (a, b) {
-      return a.strrId === b.strrId ? (a.field < b.field ? -1 : 1) : (a.strrId < b.strrId ? -1 : 1);
-    });
-    const summaryFields = globals.map(function (g) { return g.field; });
-    doc.autoTable({
-      startY: 24,
-      margin: { left: MARGIN, right: MARGIN },
-      head: [['STRR', 'Champ', 'ACTUEL', 'PROPOSER', 'DELTA']],
-      body: globals.map(function (g) {
-        return [g.strrId, g.field, fmt(g.actual), fmt(g.proposed), fmt(g.delta)];
-      }),
-      styles: { fontSize: 9, cellPadding: 1.6 },
-      headStyles: { fillColor: [16, 24, 39] },
-      didParseCell: function (data) {
-        colorizeDelta(data, 4, function (i) { return summaryFields[i]; });
-      }
     });
 
     // ---- Détail par STRR ------------------------------------------------
@@ -142,33 +110,20 @@ PRF.exportPdf = (function () {
       doc.setTextColor(110);
       doc.text(rows.length + ' ligne(s) de comparaison', MARGIN, 24);
 
-      // Mise en page groupée par article : une ligne-titre (nom de
-      // l'article, pleine largeur) puis une ligne par champ comparé.
-      const body = [];
-      const rowFields = []; // champ associé à chaque ligne du corps (null = titre)
-      let lastKey = null;
-      rows.forEach(function (r) {
-        const key = (r.section || '') + '¦' + (r.op || '') + '¦' + r.label;
-        if (key !== lastKey) {
-          lastKey = key;
-          const hasOp = r.op && r.label.toUpperCase().indexOf(r.op.toUpperCase()) >= 0;
-          body.push([{
-            content: r.label + (r.op && !hasOp ? ' · ' + r.op : '') +
-              (r.section ? '  —  ' + r.section : ''),
-            colSpan: 5,
-            styles: { fillColor: [226, 232, 240], textColor: [30, 41, 59], fontStyle: 'bold' }
-          }]);
-          rowFields.push(null);
-        }
-        body.push([r.field, fmt(r.actual), fmt(r.proposed), fmt(r.delta),
-          PRF.exportXlsx.STATUS_FR[r.status] || r.status]);
-        rowFields.push(r.field);
+      const body = rows.map(function (r) {
+        return [
+          r.label || '',
+          fmt(r.actual),
+          fmt(r.proposed),
+          fmt(r.delta),
+          PRF.exportXlsx.STATUS_FR[r.status] || r.status || ''
+        ];
       });
 
       doc.autoTable({
         startY: 28,
         margin: { left: MARGIN, right: MARGIN },
-        head: [['Champ', 'ACTUEL', 'PROPOSER', 'DELTA', 'Statut']],
+        head: [['Indication', 'ACTUEL', 'PROPOSER', 'DELTA', 'Statut']],
         body: body,
         styles: { fontSize: 8, cellPadding: 1.4, overflow: 'ellipsize' },
         headStyles: { fillColor: [37, 99, 235] },
@@ -176,7 +131,7 @@ PRF.exportPdf = (function () {
           1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }
         },
         didParseCell: function (data) {
-          colorizeDelta(data, 3, function (i) { return rowFields[i]; });
+          colorizeDelta(data, 3);
         }
       });
     });

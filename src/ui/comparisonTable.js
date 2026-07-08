@@ -44,10 +44,6 @@ PRF.comparisonTable = (function () {
   let sortSpec = [];                 // [{key, dir}] tri multi-colonnes
   let colFilters = {};               // {key: texte minuscule}
   let searchText = '';
-  let level = 'op';                  // 'op' | 'section' | 'global'
-  let showDeleted = false;
-  let grouped = true;                // vue groupée par article (défaut)
-  let filtersVisible = false;        // filtres par colonne (option avancée)
   let visibleCols = new Set(COLUMNS.map(function (c) { return c.key; }));
   let editing = null;                // {row, key, node} édition en cours
 
@@ -57,14 +53,8 @@ PRF.comparisonTable = (function () {
     els = {
       root: document.getElementById('comparison-table'),
       search: document.getElementById('global-search'),
-      level: document.getElementById('level-select'),
-      showDeleted: document.getElementById('chk-show-deleted'),
       undo: document.getElementById('btn-undo'),
       redo: document.getElementById('btn-redo'),
-      displayBtn: document.getElementById('btn-display'),
-      displayMenu: document.getElementById('display-menu'),
-      colToggleMenu: document.getElementById('col-toggle-menu'),
-      filtersChk: document.getElementById('chk-filters'),
       exportGroup: document.getElementById('export-group'),
       exportXlsx: document.getElementById('btn-export-xlsx'),
       exportPdf: document.getElementById('btn-export-pdf'),
@@ -84,11 +74,6 @@ PRF.comparisonTable = (function () {
     els.filtersInner = els.root.querySelector('.ct-filters-inner');
     els.body = els.root.querySelector('.ct-body');
 
-    // Divulgation progressive : filtres par colonne masqués par défaut,
-    // préférence retenue d'une session à l'autre
-    filtersVisible = PRF.usage.getPref('table.filters', false);
-    applyFiltersVisibility();
-
     scroller = PRF.VirtualScroller(els.body, { rowHeight: ROW_H, renderRow: renderRow });
 
     // Synchronisation du défilement horizontal en-tête / corps
@@ -103,46 +88,8 @@ PRF.comparisonTable = (function () {
       rebuild(true);
     }, 150));
 
-    // Les préférences d'affichage sont retenues d'une session à l'autre
-    els.level.addEventListener('change', function () {
-      level = els.level.value;
-      PRF.usage.setPref('table.level', level);
-      rebuild(true);
-    });
-
-    els.showDeleted.addEventListener('change', function () {
-      showDeleted = els.showDeleted.checked;
-      rebuild(false);
-    });
-
-    els.grouped = document.getElementById('chk-grouped');
-    els.grouped.addEventListener('change', function () {
-      grouped = els.grouped.checked;
-      PRF.usage.setPref('table.grouped', grouped);
-      renderHeader(); // les colonnes visibles changent entre vue groupée et vue à plat
-      rebuild(true);
-    });
-
-    els.filtersChk.addEventListener('change', function () {
-      filtersVisible = els.filtersChk.checked;
-      PRF.usage.setPref('table.filters', filtersVisible);
-      applyFiltersVisibility();
-    });
-
     els.undo.addEventListener('click', function () { PRF.history.undo(); });
     els.redo.addEventListener('click', function () { PRF.history.redo(); });
-
-    // Menu « Affichage » : regroupe toutes les options avancées du tableau
-    els.displayBtn.addEventListener('click', function (e) {
-      e.stopPropagation();
-      els.displayMenu.hidden = !els.displayMenu.hidden;
-      if (!els.displayMenu.hidden) renderColToggleMenu();
-    });
-    document.addEventListener('click', function (e) {
-      if (!els.displayMenu.hidden && !els.displayMenu.contains(e.target) && e.target !== els.displayBtn) {
-        els.displayMenu.hidden = true;
-      }
-    });
 
     els.exportXlsx.addEventListener('click', function () {
       PRF.usage.record('export:xlsx');
@@ -165,42 +112,15 @@ PRF.comparisonTable = (function () {
 
     // --- Abonnements store ------------------------------------------------
     PRF.store.on('comparison:done', function () {
-      resetViewState();
+      sortSpec = [];
+      colFilters = {};
+      searchText = '';
+      if (els) els.search.value = '';
       fullRender();
       maybeSuggestExport();
     });
     PRF.store.on('rows:changed', function () { rebuild(false); });
     PRF.store.on('history:changed', updateHistoryButtons);
-  }
-
-  /**
-   * Réinitialise l'état de vue après une nouvelle comparaison, en
-   * retrouvant les habitudes de l'utilisateur (niveau, regroupement,
-   * colonnes, filtres — personnalisation locale).
-   */
-  function resetViewState() {
-    sortSpec = [];
-    colFilters = {};
-    searchText = '';
-    showDeleted = false;
-    level = PRF.usage.getPref('table.level', 'op');
-    grouped = PRF.usage.getPref('table.grouped', true);
-    filtersVisible = PRF.usage.getPref('table.filters', false);
-    const savedCols = PRF.usage.getPref('table.columns', null);
-    if (savedCols) visibleCols = new Set(savedCols);
-    if (els) {
-      els.search.value = '';
-      els.level.value = level;
-      els.showDeleted.checked = false;
-      if (els.grouped) els.grouped.checked = grouped;
-      els.filtersChk.checked = filtersVisible;
-      applyFiltersVisibility();
-    }
-  }
-
-  /** Affiche ou masque la ligne des filtres par colonne. */
-  function applyFiltersVisibility() {
-    if (els && els.filtersBar) els.filtersBar.hidden = !filtersVisible;
   }
 
   /**
@@ -274,8 +194,8 @@ PRF.comparisonTable = (function () {
     for (let i = 0; i < detail.length; i++) {
       const r = detail[i];
       const ds = st.datasets.get(r.strrId);
-      if (ds && !ds.included) continue;                         // exclusion STRR (§9.2)
-      if (r.deleted && !(showDeleted && level === 'op')) continue; // suppression logique
+      if (ds && !ds.included) continue;                         // exclusion STRR
+      if (r.deleted) continue;                                  // suppression logique
       if (searchSet && !searchSet.has(i)) continue;
       let ok = true;
       for (let f = 0; f < activeFilters.length; f++) {
@@ -356,49 +276,6 @@ PRF.comparisonTable = (function () {
     viewRows = out;
   }
 
-  /** Clé d'article selon le niveau de lecture courant. */
-  function groupKeyOf(r) {
-    if (level === 'global') return r.strrId;
-    if (level === 'section') return r.strrId + '¦' + (r.section || '');
-    return r.strrId + '¦' + (r.section || '') + '¦' + (r.op || '') + '¦' + r.label;
-  }
-
-  /** Ligne-titre de groupe pour la ligne de données fournie. */
-  function makeGroupHeader(r) {
-    let title, sub;
-    if (level === 'global') {
-      title = r.strrId; sub = 'Total référentiel';
-    } else if (level === 'section') {
-      title = r.section || 'Hors section'; sub = r.strrId;
-    } else {
-      // Le code OP n'est ajouté que s'il n'est pas déjà dans le titre
-      const hasOp = r.op && r.label.toUpperCase().indexOf(r.op.toUpperCase()) >= 0;
-      title = r.label + (r.op && !hasOp ? ' · ' + r.op : '');
-      sub = r.strrId + (r.section ? ' › ' + r.section : '');
-    }
-    return { ghead: true, title: title, sub: sub, count: 0 };
-  }
-
-  /**
-   * Insère une ligne-titre à chaque changement d'article (les lignes
-   * arrivent déjà triées : les articles sont contigus).
-   */
-  function groupByArticle(rows) {
-    const out = [];
-    let lastKey = null, head = null;
-    for (let i = 0; i < rows.length; i++) {
-      const key = groupKeyOf(rows[i]);
-      if (key !== lastKey) {
-        head = makeGroupHeader(rows[i]);
-        out.push(head);
-        lastKey = key;
-      }
-      head.count++;
-      out.push(rows[i]);
-    }
-    return out;
-  }
-
   /** Comparaison de deux valeurs de cellule (nulls en fin de liste). */
   function cmpVal(a, b) {
     if (a === null || a === undefined || a === '') return (b === null || b === undefined || b === '') ? 0 : 1;
@@ -418,14 +295,9 @@ PRF.comparisonTable = (function () {
         if (d !== 0) return d;
       }
       // Ordre naturel : STRR puis ordre d'apparition dans le fichier
-      // (l'ordre encode déjà la succession des sections), puis champ
       let d = cmpVal(x.strrId, y.strrId);
       if (d !== 0) return d;
-      d = (x.order || 0) - (y.order || 0);
-      if (d !== 0) return d;
-      d = cmpVal(x.section, y.section);
-      if (d !== 0) return d;
-      return cmpVal(x.field, y.field);
+      return (x.order || 0) - (y.order || 0);
     });
   }
 
@@ -437,12 +309,8 @@ PRF.comparisonTable = (function () {
     rebuild(true);
   }
 
-  /** Colonnes contextuelles au niveau ligne (masquées en vue groupée). */
-  const GROUP_HIDDEN = { strr: true, section: true, op: true, label: true };
-
   function activeCols() {
     return COLUMNS.filter(function (c) {
-      if (grouped && GROUP_HIDDEN[c.key]) return false; // info portée par la ligne-titre
       return visibleCols.has(c.key);
     });
   }
@@ -608,15 +476,13 @@ PRF.comparisonTable = (function () {
 
   function renderStats(totalDetail) {
     const counts = { added: 0, removed: 0, modified: 0, unchanged: 0 };
-    let articles = 0, dataRows = 0;
+    let dataRows = 0;
     for (let i = 0; i < viewRows.length; i++) {
       const r = viewRows[i];
-      if (r.ghead) { articles++; continue; }
       dataRows++;
       if (counts[r.status] !== undefined) counts[r.status]++;
     }
     els.stats.textContent =
-      (grouped ? articles + ' article(s) · ' : '') +
       dataRows + ' ligne(s) affichée(s) sur ' + totalDetail + ' — ' +
       '➕ ' + counts.added + ' ajout(s), ❌ ' + counts.removed + ' suppression(s), ' +
       '✎ ' + counts.modified + ' modifié(s), = ' + counts.unchanged + ' inchangé(s)';
@@ -671,7 +537,13 @@ PRF.comparisonTable = (function () {
     } else if (act === 'lock') toggleLock(row);
     else if (act === 'include') toggleInclude(row, e.target.checked);
     else if (act === 'del') deleteRows([row], !row.deleted, 'ligne');
-    else if (act === 'delstrr') confirmStructureDelete(row, 'strr');
+    else if (act === 'delstrr') {
+      const st = PRF.store.state;
+      const targets = st.rows.filter(function (r) { return r.strrId === row.strrId && !r.deleted; });
+      if (targets.length) {
+        deleteRows(targets, true, 'STRR ' + row.strrId, { kind: 'strr', strrId: row.strrId });
+      }
+    }
   }
 
   function onBodyDblClick(e) {
@@ -683,7 +555,7 @@ PRF.comparisonTable = (function () {
     const col = COLUMNS.find(function (c) { return c.key === colKey; });
     if (!col || !col.editable) return;
     const row = hit.row;
-    if (row.agg || row.ghead || row.locked || row.deleted) return; // lock individuel (§8.4)
+    if (row.locked || row.deleted) return;
     startEdit(row, colKey, cell);
   }
 
@@ -871,36 +743,12 @@ PRF.comparisonTable = (function () {
       ' (' + rows.length + ' ligne(s)) — rien n\'est perdu, cliquez ↩ Annuler pour revenir en arrière.', 'info');
   }
 
-  /** Confirmation puis suppression d'une section ou d'un STRR complet. */
-  async function confirmStructureDelete(row, kind) {
-    const st = PRF.store.state;
-    let targets, what, structure;
-    if (kind === 'section') {
-      const sec = PRF.matcher.normLabel(row.section);
-      targets = st.rows.filter(function (r) {
-        return r.strrId === row.strrId && PRF.matcher.normLabel(r.section) === sec && !r.deleted;
-      });
-      what = 'section « ' + (row.section || 'hors section') + ' » de ' + row.strrId;
-      structure = { kind: 'section', strrId: row.strrId, section: row.section };
-    } else {
-      targets = st.rows.filter(function (r) { return r.strrId === row.strrId && !r.deleted; });
-      what = 'STRR ' + row.strrId + ' complet';
-      structure = { kind: 'strr', strrId: row.strrId };
-    }
-    if (!targets.length) return;
-    const ok = await PRF.ui.confirm('Suppression logique',
-      'Supprimer la ' + what + ' (' + targets.length + ' ligne(s)) ? ' +
-      'La suppression est logique : restauration possible via Annuler ou « Afficher les éléments supprimés ».');
-    if (ok) deleteRows(targets, true, what, structure);
-  }
-
-  // ---------- Vue d'export (partagée XLSX / PDF, §10.3) ---------------------------
+  // ---------- Vue d'export (partagée XLSX / PDF) ---------------------------
 
   /**
    * Lignes détaillées destinées à l'export : filtres, recherche et tri
    * courants appliqués, MAIS suppressions logiques, lignes décochées et
    * STRR exclus toujours écartés — quel que soit l'état d'affichage.
-   * @returns {{detailRows:Array, visibleColumns:Set<string>, level:string}}
    */
   function getExportView() {
     const st = PRF.store.state;
@@ -914,9 +762,9 @@ PRF.comparisonTable = (function () {
     for (let i = 0; i < st.rows.length; i++) {
       const r = st.rows[i];
       const ds = st.datasets.get(r.strrId);
-      if (ds && !ds.included) continue;   // exclusion STRR (§10.3)
-      if (r.deleted) continue;            // suppression utilisateur (§10.3)
-      if (!r.included) continue;          // case « inclure dans export » (§8.5)
+      if (ds && !ds.included) continue;   // exclusion STRR
+      if (r.deleted) continue;            // suppression utilisateur
+      if (!r.included) continue;          // case « inclure dans export »
       if (searchSet && !searchSet.has(i)) continue;
       let ok = true;
       for (let f = 0; f < activeFilters.length; f++) {
@@ -926,8 +774,8 @@ PRF.comparisonTable = (function () {
       }
       if (ok) out.push(r);
     }
-    sortRows(out); // structure fidèle à l'UI : même tri (§10.1)
-    return { detailRows: out, visibleColumns: new Set(visibleCols), level: level, grouped: grouped };
+    sortRows(out);
+    return { detailRows: out, visibleColumns: new Set(visibleCols) };
   }
 
   return { init, getExportView, rebuild };
