@@ -18,35 +18,25 @@ window.PRF = window.PRF || {};
 PRF.store = (function () {
 
   /**
-   * État applicatif unique.
+   * État applicatif unique (modèle simplifié).
    *
    * files : métadonnées + données normalisées par fichier importé.
-   *   { id, name, size, sheets: [{ sheetName, strrId, type, records, columns }] }
+   *   { id, name, size, sheets: [{ sheetName, strrId, type, records }] }
    *
    * datasets : Map<strrId, { ACTUEL: {records, fileName, sheetName}|null,
    *                          PROPOSER: {...}|null, included: boolean }>
    *
-   * rows : lignes de comparaison à plat (niveau OP), produites par
-   *        PRF.comparator, décorées de l'état utilisateur.
+   * rows : lignes de comparaison à plat, produites par PRF.comparator.
    *
    * userState : Map<rowId, {actual?, proposed?, locked?, deleted?, included?}>
-   *   Conserve les modifications utilisateur indépendamment des
-   *   recalculs (changement de sélection de champs, rechargement session).
-   *
-   * fieldConfig : sélection dynamique des champs (CDC §7).
-   *   selected  : Set<string> colonnes cochées
-   *   groups    : { nomGroupe: string[] }
-   *   directions: { colonne: 'lower'|'higher' } sens de l'amélioration
    */
   const state = {
     files: [],
     datasets: new Map(),
-    columns: [],
-    fieldConfig: { selected: new Set(), groups: {}, directions: {} },
     rows: [],
     userState: new Map(),
     userConfig: { fuzzyMatching: false, autosave: true },
-    deletedStructures: []   // suppressions logiques section/STRR : {kind, strrId, section?}
+    deletedStructures: []
   };
 
   /** Table événement -> liste d'abonnés. */
@@ -108,8 +98,6 @@ PRF.store = (function () {
       });
     });
     state.datasets = next;
-    // Union ordonnée des colonnes détectées sur l'ensemble des fichiers.
-    state.columns = PRF.fieldRegistry.collectColumns(state.files);
     emit('datasets:changed');
   }
 
@@ -127,8 +115,6 @@ PRF.store = (function () {
   function reset() {
     state.files = [];
     state.datasets = new Map();
-    state.columns = [];
-    state.fieldConfig = { selected: new Set(), groups: {}, directions: {} };
     state.rows = [];
     state.userState = new Map();
     state.deletedStructures = [];
