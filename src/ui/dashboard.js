@@ -61,7 +61,17 @@ PRF.dashboard = (function () {
       els.fileInput.value = ''; // permet de réimporter le même fichier
     });
 
-    els.compare.addEventListener('click', function () { PRF.app.showView('fields'); });
+    els.compare.addEventListener('click', function () {
+      const result = PRF.comparator.compareAll();
+      if (!result.rows.length) {
+        PRF.errors.userError('Aucune ligne de comparaison produite. Vérifiez les fichiers importés.');
+        return;
+      }
+      PRF.usage.record('compare');
+      PRF.history.clear();
+      PRF.store.emit('comparison:done');
+      PRF.app.showView('table');
+    });
 
     PRF.store.on('datasets:changed', render);
     render();
@@ -93,8 +103,7 @@ PRF.dashboard = (function () {
 
     els.progress.hidden = true;
     if (imported) {
-      PRF.store.rebuildDatasets();          // Map<STRR_ID, Dataset> (§11.2)
-      PRF.fieldRegistry.refreshFieldConfig(); // colonnes dynamiques (§7.1)
+      PRF.store.rebuildDatasets();
       PRF.ui.toast(imported + ' fichier(s) importé(s) — prêt pour la comparaison.', 'success');
     }
   }
@@ -106,7 +115,6 @@ PRF.dashboard = (function () {
     if (idx < 0) return;
     st.files.splice(idx, 1);
     PRF.store.rebuildDatasets();
-    PRF.fieldRegistry.refreshFieldConfig();
   }
 
   /** Ré-affecte manuellement STRR ou type d'une feuille (mismatch §13). */

@@ -1,11 +1,11 @@
 /* ============================================================
  * app.js — Amorçage et navigation de l'application
  *
- * - Routage entre les trois vues (dashboard / champs / tableau).
+ * - Routage entre les deux vues (dashboard / tableau).
  * - Raccourcis clavier globaux (Ctrl+Z / Ctrl+Y).
  * - Export / import de session JSON (§12.1).
  * - Restauration de l'autosave IndexedDB au démarrage.
- * - Vérification des librairies vendorisées (offline strict, §2.1).
+ * - Vérification des librairies vendorisées (offline strict).
  * ============================================================ */
 "use strict";
 
@@ -13,17 +13,18 @@ window.PRF = window.PRF || {};
 
 PRF.app = (function () {
 
-  const VIEWS = ['dashboard', 'fields', 'table'];
+  const VIEWS = ['dashboard', 'table'];
   let currentView = 'dashboard';
 
   /**
    * Affiche une vue et met à jour la navigation.
-   * @param {'dashboard'|'fields'|'table'} name
+   * @param {'dashboard'|'table'} name
    */
   function showView(name) {
     currentView = name;
     VIEWS.forEach(function (v) {
-      document.getElementById('view-' + v).hidden = v !== name;
+      const el = document.getElementById('view-' + v);
+      if (el) el.hidden = v !== name;
     });
     document.querySelectorAll('.nav-btn').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.view === name);
@@ -33,21 +34,17 @@ PRF.app = (function () {
 
   /**
    * Active/désactive les boutons de navigation selon l'état :
-   * « Sélection des champs » dès qu'une paire STRR complète existe,
-   * « Comparaison » dès qu'une comparaison a été calculée.
+   * « Comparaison » activé dès qu'une paire STRR complète existe.
    */
   function updateNav() {
     const st = PRF.store.state;
     let hasComplete = false;
     st.datasets.forEach(function (ds) { if (ds.ACTUEL && ds.PROPOSER) hasComplete = true; });
     const bDash = document.querySelector('[data-view="dashboard"]');
-    const bFields = document.querySelector('[data-view="fields"]');
     const bTable = document.querySelector('[data-view="table"]');
-    bFields.disabled = !hasComplete;
-    bTable.disabled = st.rows.length === 0;
-    // Étapes accomplies : coche verte sur le stepper
-    bDash.classList.toggle('done', hasComplete);
-    bFields.classList.toggle('done', st.rows.length > 0);
+    if (bTable) bTable.disabled = !hasComplete;
+    if (bDash) bDash.classList.toggle('done', hasComplete);
+    if (bTable) bTable.classList.toggle('done', hasComplete);
   }
 
   /** Vérifie la présence des librairies vendorisées (mode dégradé sinon). */
@@ -104,7 +101,7 @@ PRF.app = (function () {
 
   /** Recalcule et navigue après restauration d'une session. */
   function afterSessionRestore(hadComparison) {
-    if (hadComparison && PRF.store.state.fieldConfig.selected.size) {
+    if (hadComparison) {
       PRF.comparator.compareAll();
       PRF.store.emit('comparison:done');
       showView('table');
@@ -133,38 +130,24 @@ PRF.app = (function () {
 
   /**
    * Macro « ⚡ Relancer comme la dernière fois » : ré-applique la
-   * dernière sélection de champs mémorisée (PRF.usage) et lance la
-   * comparaison directement, sans repasser par l'écran de sélection.
+   * dernière configuration (fuzzy matching) et lance la comparaison.
    */
   function quickRun() {
     const last = PRF.usage.getLastRun();
     if (!last) return;
     const st = PRF.store.state;
-    const colSet = new Set(st.columns);
-    const selected = (last.selected || []).filter(function (c) { return colSet.has(c); });
-    if (!selected.length) {
-      PRF.errors.userWarn('Les champs de votre dernière analyse ne sont pas présents dans ces fichiers — choisissez les champs à l\'étape 2.');
-      showView('fields');
-      return;
-    }
-    st.fieldConfig.selected = new Set(selected);
-    Object.keys(last.directions || {}).forEach(function (c) {
-      if (colSet.has(c)) st.fieldConfig.directions[c] = last.directions[c];
-    });
     st.userConfig.fuzzyMatching = !!last.fuzzy;
-    PRF.store.emit('fields:changed');
 
     const result = PRF.comparator.compareAll();
     if (!result.rows.length) {
-      PRF.errors.userError('Aucune ligne de comparaison produite avec les derniers réglages — choisissez les champs à l\'étape 2.');
-      showView('fields');
+      PRF.errors.userError('Aucune ligne de comparaison produite.');
       return;
     }
     PRF.usage.record('quickRun');
     PRF.history.clear();
     PRF.store.emit('comparison:done');
     showView('table');
-    PRF.ui.toast('Comparaison relancée avec vos derniers réglages (' + selected.length + ' champ(s)).', 'success');
+    PRF.ui.toast('Comparaison relancée avec vos derniers réglages.', 'success');
   }
 
   /** Point d'entrée. */
@@ -179,7 +162,6 @@ PRF.app = (function () {
     });
 
     PRF.dashboard.init();
-    PRF.fieldSelector.init();
     PRF.comparisonTable.init();
     PRF.store.on('comparison:done', updateNav);
     document.getElementById('btn-quick-run').addEventListener('click', quickRun);
