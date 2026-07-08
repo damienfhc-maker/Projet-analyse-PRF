@@ -22,8 +22,7 @@
     <div class="brand">📊 Comparateur STRR <span class="brand-sub">ACTUEL / PROPOSER</span></div>
     <nav id="main-nav">
       <button class="nav-btn active" data-view="dashboard"><span class="step-n">1</span> Import &amp; fichiers</button>
-      <button class="nav-btn" data-view="fields" disabled><span class="step-n">2</span> Sélection des champs</button>
-      <button class="nav-btn" data-view="table" disabled><span class="step-n">3</span> Comparaison</button>
+      <button class="nav-btn" data-view="table" disabled><span class="step-n">2</span> Comparaison</button>
     </nav>
     <div class="topbar-actions">
       <button id="btn-session-save" class="btn btn-ghost" title="Enregistre tout votre travail dans un fichier, à rouvrir plus tard ou sur un autre poste">💾 Sauvegarder</button>
@@ -69,48 +68,7 @@
     </section>
   </main>
 
-  <!-- ===== Vue 2 : Sélection dynamique des champs ===== -->
-  <main id="view-fields" class="view" hidden>
-    <section class="panel">
-      <div class="panel-head-row">
-        <h2>Choisir les données à comparer</h2>
-        <button id="btn-advanced" class="btn btn-ghost"
-          title="Profils de sélection réutilisables, tolérance d'orthographe, sens d'amélioration par champ">⚙ Options avancées</button>
-      </div>
-      <p class="panel-desc">Cochez les champs à comparer — tout est coché par défaut.
-        Décochez ce qui ne vous intéresse pas, puis lancez la comparaison.</p>
-      <div id="advanced-panel" class="advanced-panel" hidden>
-        <div class="profile-bar">
-          <span class="adv-label" title="Un profil mémorise votre sélection pour la retrouver en un clic">Mes profils :</span>
-          <select id="profile-select" title="Vos sélections enregistrées, la plus utilisée en premier"></select>
-          <button id="btn-profile-load" class="btn btn-ghost" title="Appliquer le profil sélectionné">Appliquer</button>
-          <button id="btn-profile-save" class="btn btn-ghost" title="Mémoriser la sélection actuelle sous un nom">Mémoriser…</button>
-          <button id="btn-profile-delete" class="btn btn-ghost" title="Oublier le profil sélectionné">🗑</button>
-        </div>
-        <label class="chk" title="Apparie deux lignes même si leurs libellés diffèrent légèrement (faute de frappe, abréviation)">
-          <input type="checkbox" id="chk-fuzzy"> Tolérer les petites différences d'orthographe entre les deux fichiers</label>
-        <p class="hint">Le bouton « ⬇/⬆ = mieux » à côté de chaque champ indique le sens d'une amélioration
-          (un coût qui baisse est une amélioration ; une marge qui monte aussi).</p>
-      </div>
-      <div class="field-toolbar">
-        <input type="search" id="field-filter" placeholder="🔍 Trouver un champ…">
-        <button id="btn-fields-all" class="btn btn-ghost" title="Cocher tous les champs visibles">Tout cocher</button>
-        <button id="btn-fields-none" class="btn btn-ghost" title="Décocher tous les champs visibles">Tout décocher</button>
-      </div>
-      <div id="field-groups" class="field-groups"></div>
-    </section>
-
-    <section class="panel">
-      <h2>Aperçu du résultat <span class="hint-inline">(mis à jour à chaque changement — 50 premières lignes)</span></h2>
-      <div id="field-preview" class="preview-table-wrap"></div>
-      <div class="panel-footer">
-        <button id="btn-back-dashboard" class="btn btn-ghost" title="Revenir à l'import des fichiers">⟵ Retour</button>
-        <button id="btn-run-compare" class="btn btn-primary btn-lg" title="Calcule les écarts et affiche le tableau de résultats">Lancer la comparaison ➜</button>
-      </div>
-    </section>
-  </main>
-
-  <!-- ===== Vue 3 : Tableau de comparaison ===== -->
+  <!-- ===== Vue 2 : Tableau de comparaison ===== -->
   <main id="view-table" class="view view-table" hidden>
     <section class="table-toolbar">
       <div class="toolbar-row">
