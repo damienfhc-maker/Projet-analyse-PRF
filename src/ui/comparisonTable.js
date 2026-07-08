@@ -516,10 +516,12 @@ PRF.comparisonTable = (function () {
       let cls = 'ct-cell' + (c.num ? ' num' : '');
       let content;
       if (c.key === 'delta') {
-        const better = PRF.fieldRegistry.isImprovement(r.field, v);
-        if (better === true) cls += ' delta-good';
-        else if (better === false) cls += ' delta-bad';
-        else cls += ' delta-zero';
+        // Heuristique simple : delta positif = amélioration (vert), négatif = détérioration (rouge)
+        if (typeof v === 'number' && Math.abs(v) > 1e-9) {
+          cls += v > 0 ? ' delta-good' : ' delta-bad';
+        } else {
+          cls += ' delta-zero';
+        }
         content = typeof v === 'number' && v > 0 ? '+' + fmt(v) : esc(fmt(v));
       } else if (c.key === 'status') {
         const lbl = PRF.exportXlsx.STATUS_FR[v] || v;

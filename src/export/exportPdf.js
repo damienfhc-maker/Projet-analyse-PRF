@@ -57,9 +57,9 @@ PRF.exportPdf = (function () {
     if (raw === '' || raw === null || raw === undefined) return;
     const num = typeof raw === 'number' ? raw : parseFloat(String(raw).replace(/[  ]/g, '').replace(',', '.'));
     if (!isFinite(num)) return;
-    const better = PRF.fieldRegistry.isImprovement(fieldOfRow(data.row.index), num);
-    if (better === true) { data.cell.styles.textColor = [21, 128, 61]; data.cell.styles.fontStyle = 'bold'; }
-    else if (better === false) { data.cell.styles.textColor = [185, 28, 28]; data.cell.styles.fontStyle = 'bold'; }
+    // Heuristique : delta positif = amélioration (vert), négatif = détérioration (rouge)
+    if (num > 1e-9) { data.cell.styles.textColor = [21, 128, 61]; data.cell.styles.fontStyle = 'bold'; }
+    else if (num < -1e-9) { data.cell.styles.textColor = [185, 28, 28]; data.cell.styles.fontStyle = 'bold'; }
   }
 
   /** Lance la génération du rapport PDF. */

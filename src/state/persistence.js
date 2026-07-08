@@ -49,14 +49,9 @@ PRF.persistence = (function () {
       version: SESSION_VERSION,
       savedAt: new Date().toISOString(),
       files: st.files,
-      comparisons: Array.from(st.datasets.keys()), // STRR comparables
+      comparisons: Array.from(st.datasets.keys()),
       userConfig: st.userConfig,
       excludedItems: excludedItems,
-      fieldConfig: {
-        selected: Array.from(st.fieldConfig.selected),
-        directions: st.fieldConfig.directions,
-        groups: st.fieldConfig.groups
-      },
       userState: Array.from(st.userState.entries()),
       deletedStructures: st.deletedStructures,
       datasetsIncluded: Array.from(st.datasets.entries()).map(function (e) {
@@ -89,15 +84,6 @@ PRF.persistence = (function () {
       if (ds) ds.included = e[1];
     });
 
-    // Configuration des champs : restaurée telle quelle
-    PRF.fieldRegistry.refreshFieldConfig();
-    if (session.fieldConfig) {
-      const colSet = new Set(st.columns);
-      st.fieldConfig.selected = new Set(
-        (session.fieldConfig.selected || []).filter(function (c) { return colSet.has(c); }));
-      Object.assign(st.fieldConfig.directions, session.fieldConfig.directions || {});
-    }
-    PRF.store.emit('fields:changed');
     PRF.history.clear();
     PRF.errors.log('info', 'Session restaurée (' + st.files.length + ' fichier(s), sauvée le ' + session.savedAt + ')');
     return !!session.hasComparison;
